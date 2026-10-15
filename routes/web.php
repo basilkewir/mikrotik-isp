@@ -40,6 +40,7 @@ Route::middleware(['web'])->group(function () {
 
     // Clients
     Route::resource('clients', ClientController::class)->only(['index', 'store', 'show']);
+    Route::post('clients/sync', [ClientController::class, 'sync'])->name('clients.sync');
     Route::put('clients/{client}', [ClientController::class, 'update'])->name('clients.update');
     Route::delete('clients/{client}', [ClientController::class, 'destroy'])->name('clients.destroy');
     Route::post('clients/{client}/devices', [ClientController::class, 'storeDevice'])->name('clients.devices.store');

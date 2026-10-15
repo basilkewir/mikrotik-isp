@@ -11,6 +11,7 @@ use Exception;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -37,6 +38,22 @@ class ClientController extends Controller
                 'search' => $request->query('search'),
             ],
         ]);
+    }
+
+    /**
+     * Import hotspot/PPPoE users from every router into local clients,
+     * plans and subscriptions (idempotent — safe to run repeatedly).
+     */
+    public function sync(): RedirectResponse
+    {
+        try {
+            $result = Artisan::call('isp:sync-router-users');
+            $output = Artisan::output();
+
+            return back()->with('success', 'Router sync complete. ' . preg_replace('/\s+/', ' ', trim($output)));
+        } catch (Exception $exception) {
+            return back()->with('error', 'Router sync failed: ' . $exception->getMessage());
+        }
     }
 
     public function store(Request $request): RedirectResponse

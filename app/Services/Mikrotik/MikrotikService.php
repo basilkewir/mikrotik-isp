@@ -274,6 +274,30 @@ class MikrotikService
         return $users[0] ?? null;
     }
 
+    /**
+     * List every hotspot user configured on the router (the subscriber database).
+     *
+     * @return array<int, array>
+     */
+    public function listHotspotUsers(): array
+    {
+        return $this->client->command('/ip/hotspot/user/print', [
+            '=.proplist=.id,name,password,profile,server,comment,disabled,limit-uptime,total-bytes-in,total-bytes-out,last-logged-out',
+        ]);
+    }
+
+    /**
+     * List every PPPoE secret configured on the router.
+     *
+     * @return array<int, array>
+     */
+    public function listPppoeSecrets(): array
+    {
+        return $this->client->command('/ppp/secret/print', [
+            '=.proplist=.id,name,password,profile,service,remote-address,comment,disabled,routes,limit-bytes-in,limit-bytes-out',
+        ]);
+    }
+
     // ==========================================
     // PPPoE MANAGEMENT
     // ==========================================
