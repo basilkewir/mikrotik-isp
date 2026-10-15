@@ -1,10 +1,10 @@
 <template>
-  <AppLayout>
+  <AppLayout full-width>
     <div class="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <div>
         <h2 class="text-2xl font-bold tracking-tight text-white">Connected Devices</h2>
         <p class="text-sm text-slate-400">
-          Every device seen by the routers — ARP table, DHCP leases, Hotspot sessions/hosts, PPPoE tunnels and CDP/LLDP neighbours — merged by MAC address.
+          Every device seen by the routers — ARP, DHCP, Hotspot sessions/hosts, PPPoE and CDP/LLDP neighbours — merged by MAC. Manage them inline: onboard, block, kick, rate-limit and control access.
         </p>
       </div>
       <div class="flex items-center gap-3">
@@ -24,7 +24,7 @@
     </div>
 
     <!-- Stats -->
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+    <div class="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
       <div class="bg-slate-800 border border-slate-700/60 rounded-xl p-4">
         <div class="text-xs uppercase text-slate-400 mb-1">Total Devices</div>
         <div class="text-2xl font-extrabold text-white">{{ filtered.length }}</div>
@@ -42,13 +42,17 @@
         <div class="text-2xl font-extrabold text-indigo-400">{{ filtered.filter(d => d.sources.includes('dhcp')).length }}</div>
       </div>
       <div class="bg-slate-800 border border-slate-700/60 rounded-xl p-4">
-        <div class="text-xs uppercase text-slate-400 mb-1">Offline / Idle</div>
-        <div class="text-2xl font-extrabold text-rose-400">{{ filtered.filter(d => d.status !== 'online').length }}</div>
+        <div class="text-xs uppercase text-slate-400 mb-1">Managed</div>
+        <div class="text-2xl font-extrabold text-sky-400">{{ filtered.filter(d => d.managed_device_id).length }}</div>
+      </div>
+      <div class="bg-slate-800 border border-slate-700/60 rounded-xl p-4">
+        <div class="text-xs uppercase text-slate-400 mb-1">Blocked</div>
+        <div class="text-2xl font-extrabold text-rose-400">{{ filtered.filter(d => d.is_blocked).length }}</div>
       </div>
     </div>
 
     <!-- Filters -->
-    <div class="mb-6 flex flex-col md:flex-row gap-3">
+    <div class="mb-6 flex flex-col lg:flex-row gap-3">
       <input v-model="search" type="text" placeholder="Search IP, MAC, hostname, user, comment..." class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm text-white focus:ring-indigo-500 focus:border-indigo-500" />
       <select v-model="routerFilter" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
         <option value="">All routers</option>
@@ -59,6 +63,25 @@
         <option value="online">Online</option>
         <option value="idle">Idle</option>
         <option value="offline">Offline</option>
+      </select>
+      <select v-model="sourceFilter" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
+        <option value="">All sources</option>
+        <option value="arp">ARP</option>
+        <option value="dhcp">DHCP</option>
+        <option value="hotspot">Hotspot session</option>
+        <option value="hotspot_host">Hotspot host</option>
+        <option value="pppoe">PPPoE</option>
+        <option value="neighbor">Neighbor</option>
+      </select>
+      <select v-model="typologyFilter" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
+        <option value="">All typologies</option>
+        <option v-for="(label, value) in typeOptions" :key="value" :value="value">{{ label }}</option>
+      </select>
+      <select v-model="managedFilter" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
+        <option value="">All devices</option>
+        <option value="managed">Managed only</option>
+        <option value="guest">Guest / unmanaged</option>
+        <option value="blocked">Blocked only</option>
       </select>
     </div>
 
@@ -83,7 +106,7 @@
               <th class="px-4 py-3">Sources</th>
               <th class="px-4 py-3">Uptime / Last Seen</th>
               <th class="px-4 py-3 text-right">Traffic In / Out</th>
-              <th class="px-4 py-3 text-right">Details</th>
+              <th class="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-700/40">
@@ -92,12 +115,14 @@
                 <span class="px-2 py-0.5 rounded text-[11px] font-bold uppercase" :class="statusClass(device.status)">
                   {{ device.status }}
                 </span>
+                <span v-if="device.is_blocked" class="block mt-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-950 text-rose-400 border border-rose-800 w-fit">Blocked</span>
               </td>
               <td class="px-4 py-3">
                 <span class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border" :class="typologyClass(device.typology)">
                   {{ device.typology_label || 'Unknown' }}
                 </span>
                 <span v-if="device.client_name" class="block text-[11px] text-emerald-400 mt-0.5">{{ device.client_name }}</span>
+                <span v-else-if="!device.managed_device_id" class="block text-[11px] text-slate-500 mt-0.5">Guest</span>
               </td>
               <td class="px-4 py-3 text-xs font-medium text-white">{{ device.router_name }}</td>
               <td class="px-4 py-3 text-xs font-mono">{{ device.ip_address || '—' }}</td>
@@ -127,14 +152,18 @@
                 <span class="text-slate-600"> / </span>
                 <span class="text-amber-400">{{ formatBytes(device.bytes_out) }}</span>
               </td>
-              <td class="px-4 py-3 text-right">
-                <button @click="selected = device" class="text-xs px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-indigo-300 rounded font-medium transition">
-                  View All
-                </button>
+              <td class="px-4 py-3 text-right whitespace-nowrap">
+                <div class="inline-flex items-center gap-1">
+                  <button @click="selected = device" class="text-[11px] px-2 py-1 bg-slate-700 hover:bg-slate-600 text-indigo-300 rounded font-medium transition" title="Details & all actions">Details</button>
+                  <button v-if="!device.managed_device_id && device.mac_address" @click="openOnboard(device)" class="text-[11px] px-2 py-1 bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 rounded font-medium transition" title="Add to managed inventory">Onboard</button>
+                  <button v-if="device.is_blocked" @click="doUnblock(device)" class="text-[11px] px-2 py-1 bg-slate-700 hover:bg-slate-600 text-emerald-300 rounded font-medium transition" title="Unblock IP">Unblock</button>
+                  <button v-else-if="device.ip_address" @click="doBlock(device)" class="text-[11px] px-2 py-1 bg-rose-900/50 hover:bg-rose-800 text-rose-300 rounded font-medium transition" title="Block IP + kick session">Block</button>
+                  <button v-if="device.user && hasSession(device)" @click="doKick(device)" class="text-[11px] px-2 py-1 bg-amber-900/50 hover:bg-amber-800 text-amber-300 rounded font-medium transition" title="Disconnect session">Kick</button>
+                </div>
               </td>
             </tr>
             <tr v-if="!filtered.length">
-              <td colspan="11" class="px-6 py-10 text-center text-slate-400 text-sm">
+              <td colspan="12" class="px-6 py-10 text-center text-slate-400 text-sm">
                 No devices found. Routers may be offline, or no clients are currently connected.
               </td>
             </tr>
@@ -143,20 +172,54 @@
       </div>
     </div>
 
-    <!-- Device Details Modal -->
+    <!-- Device Details + Actions Modal -->
     <div v-if="selected" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div class="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-3xl p-6 shadow-2xl max-h-[85vh] overflow-y-auto">
+      <div class="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-4xl p-6 shadow-2xl max-h-[85vh] overflow-y-auto">
         <div class="flex items-start justify-between mb-4">
           <div>
             <h3 class="text-lg font-bold text-white flex items-center gap-2">
               {{ selected.hostname || selected.ip_address || selected.mac_address || 'Device' }}
               <span class="px-2 py-0.5 rounded text-[11px] font-bold uppercase" :class="statusClass(selected.status)">{{ selected.status }}</span>
+              <span v-if="selected.is_blocked" class="px-2 py-0.5 rounded text-[11px] font-bold uppercase bg-rose-950 text-rose-400 border border-rose-800">Blocked</span>
             </h3>
             <p class="text-xs text-slate-400 font-mono">
               {{ selected.router_name }} · {{ selected.ip_address || 'no IP' }} · {{ selected.mac_address || 'no MAC' }}
             </p>
           </div>
           <button @click="selected = null" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+        </div>
+
+        <!-- Management actions -->
+        <div class="mb-5 bg-slate-900/60 border border-slate-700/50 rounded-lg p-4">
+          <h4 class="text-xs uppercase font-bold tracking-wider text-indigo-400 mb-3">Management</h4>
+          <div class="flex flex-wrap gap-2">
+            <button v-if="!selected.managed_device_id && selected.mac_address" @click="openOnboard(selected)" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition">
+              Onboard to Inventory
+            </button>
+            <template v-if="selected.managed_device_id">
+              <button @click="doRenew(selected)" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition">
+                Renew Access
+              </button>
+              <button @click="doDisable(selected)" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold transition">
+                Disable Access
+              </button>
+              <a :href="`/clients/${selected.managed_client_id || ''}`" v-if="selected.managed_client_id" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-indigo-300 rounded-lg text-xs font-semibold transition">
+                View Client
+              </a>
+            </template>
+            <button v-if="selected.is_blocked" @click="doUnblock(selected)" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-emerald-300 rounded-lg text-xs font-semibold transition">
+              Unblock IP
+            </button>
+            <button v-else-if="selected.ip_address" @click="doBlock(selected)" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold transition">
+              Block Device
+            </button>
+            <button v-if="selected.user && hasSession(selected)" @click="doKick(selected)" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold transition">
+              Kick Session
+            </button>
+            <button v-if="selected.ip_address" @click="openSpeed(selected)" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition">
+              Set Speed Limit
+            </button>
+          </div>
         </div>
 
         <!-- Merged summary -->
@@ -167,6 +230,7 @@
             <Detail label="Status" :value="selected.status" />
             <Detail label="Typology" :value="selected.typology_label" />
             <Detail label="Client" :value="selected.client_name" />
+            <Detail label="Blocked" :value="boolText(selected.is_blocked)" />
             <Detail label="IP Address" :value="selected.ip_address" />
             <Detail label="MAC Address" :value="selected.mac_address" />
             <Detail label="Hostname" :value="selected.hostname" />
@@ -185,7 +249,6 @@
             <Detail label="Lease Rate Limit" :value="selected.dhcp_rate_limit" />
             <Detail label="DHCP Server" :value="selected.dhcp_server" />
             <Detail label="Class ID" :value="selected.class_id" />
-            <Detail label="Blocked" :value="boolText(selected.blocked)" />
             <Detail label="Bytes In" :value="formatBytes(selected.bytes_in)" />
             <Detail label="Bytes Out" :value="formatBytes(selected.bytes_out)" />
             <Detail label="Packets In" :value="selected.packets_in" />
@@ -215,11 +278,70 @@
         </div>
       </div>
     </div>
+
+    <!-- Onboard Modal -->
+    <div v-if="onboardDevice" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div class="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-md p-6 shadow-2xl">
+        <h3 class="text-lg font-bold text-white mb-1">Onboard Device</h3>
+        <p class="text-xs text-slate-400 font-mono mb-4">
+          {{ onboardDevice.mac_address }} · {{ onboardDevice.ip_address || 'no IP' }} · {{ onboardDevice.router_name }}
+        </p>
+        <form @submit.prevent="submitOnboard" class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Typology</label>
+            <select v-model="onboardForm.type" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
+              <option v-for="(label, value) in typeOptions" :key="value" :value="value">{{ label }}</option>
+            </select>
+            <p class="text-[11px] text-slate-500 mt-1">Customer-edge types (CPE, Hotspot, Bridge, ONU) are MAC-authorized on the router.</p>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Assign to Client <span class="normal-case font-normal text-slate-500">(optional)</span></label>
+            <select v-model="onboardForm.client_id" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
+              <option value="">— Guest / unassigned —</option>
+              <option v-for="c in clients" :key="c.id" :value="String(c.id)">{{ c.name }} ({{ c.client_code }})</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Comment <span class="normal-case font-normal text-slate-500">(optional)</span></label>
+            <input v-model="onboardForm.comment" type="text" maxlength="150" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white" />
+          </div>
+          <div class="flex justify-end gap-3 pt-3 border-t border-slate-700/60">
+            <button type="button" @click="onboardDevice = null" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition">Cancel</button>
+            <button type="submit" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold transition">Onboard</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Speed Limit Modal -->
+    <div v-if="speedDevice" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div class="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-sm p-6 shadow-2xl">
+        <h3 class="text-lg font-bold text-white mb-1">Set Speed Limit</h3>
+        <p class="text-xs text-slate-400 font-mono mb-4">{{ speedDevice.ip_address }} · {{ speedDevice.hostname || speedDevice.mac_address }}</p>
+        <form @submit.prevent="submitSpeed" class="space-y-4">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Upload</label>
+              <input v-model="speedForm.upload" type="text" required placeholder="e.g. 5M" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Download</label>
+              <input v-model="speedForm.download" type="text" required placeholder="e.g. 10M" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono" />
+            </div>
+          </div>
+          <p class="text-[11px] text-slate-500">RouterOS format: number + K/M/G (e.g. 5M). Applied as a simple queue on this IP.</p>
+          <div class="flex justify-end gap-3 pt-3 border-t border-slate-700/60">
+            <button type="button" @click="speedDevice = null" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition">Cancel</button>
+            <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold transition">Apply</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </AppLayout>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { router as inertiaRouter } from '@inertiajs/vue3';
 import AppLayout from '../../Layouts/AppLayout.vue';
 import Detail from '../../Components/Detail.vue';
@@ -229,14 +351,26 @@ const props = defineProps({
   routers: Array,
   routerErrors: Array,
   fetchedAt: String,
+  clients: Array,
+  typeOptions: Object,
+  filters: Object,
 });
 
-const search = ref('');
-const routerFilter = ref('');
-const statusFilter = ref('');
+const search = ref(props.filters?.q || '');
+const routerFilter = ref(props.filters?.router_id || '');
+const statusFilter = ref(props.filters?.status || '');
+const sourceFilter = ref(props.filters?.source || '');
+const typologyFilter = ref(props.filters?.typology || '');
+const managedFilter = ref(props.filters?.managed || '');
 const autoRefresh = ref(false);
 const loading = ref(false);
 const selected = ref(null);
+
+const onboardDevice = ref(null);
+const onboardForm = reactive({ type: 'cpe', client_id: '', comment: '' });
+
+const speedDevice = ref(null);
+const speedForm = reactive({ upload: '', download: '' });
 
 let timer = null;
 
@@ -246,6 +380,11 @@ const filtered = computed(() => {
   return props.devices.filter((device) => {
     if (routerFilter.value && String(device.router_id) !== routerFilter.value) return false;
     if (statusFilter.value && device.status !== statusFilter.value) return false;
+    if (sourceFilter.value && !device.sources.includes(sourceFilter.value)) return false;
+    if (typologyFilter.value && device.typology !== typologyFilter.value) return false;
+    if (managedFilter.value === 'managed' && !device.managed_device_id) return false;
+    if (managedFilter.value === 'guest' && device.managed_device_id) return false;
+    if (managedFilter.value === 'blocked' && !device.is_blocked) return false;
     if (!term) return true;
 
     return [device.ip_address, device.mac_address, device.hostname, device.user, device.comment, device.interface, device.typology_label, device.client_name]
@@ -253,6 +392,9 @@ const filtered = computed(() => {
       .some((value) => String(value).toLowerCase().includes(term));
   });
 });
+
+const hasSession = (device) =>
+  device.sources.includes('hotspot') || device.sources.includes('pppoe');
 
 const refresh = () => {
   loading.value = true;
@@ -276,6 +418,98 @@ watch(autoRefresh, (enabled) => {
 });
 
 onBeforeUnmount(() => clearInterval(timer));
+
+// ---- Management actions ----
+
+const openOnboard = (device) => {
+  onboardDevice.value = device;
+  onboardForm.type = device.typology && device.typology !== 'unknown' ? device.typology : 'cpe';
+  onboardForm.client_id = '';
+  onboardForm.comment = device.comment || '';
+};
+
+const submitOnboard = () => {
+  const device = onboardDevice.value;
+  inertiaRouter.post('/connected-devices', {
+    router_id: device.router_id,
+    mac_address: device.mac_address,
+    type: onboardForm.type,
+    client_id: onboardForm.client_id || null,
+    ip_address: device.ip_address || null,
+    hostname: device.hostname || null,
+    comment: onboardForm.comment || null,
+  }, {
+    preserveScroll: true,
+    onFinish: () => {
+      onboardDevice.value = null;
+      refresh();
+    },
+  });
+};
+
+const doBlock = (device) => {
+  if (!confirm(`Block ${device.ip_address || device.mac_address}? This kicks any live session and isolates the IP.`)) return;
+  inertiaRouter.post('/connected-devices/block', {
+    router_id: device.router_id,
+    ip_address: device.ip_address || null,
+    user: device.user || null,
+    protocol: device.sources.includes('pppoe') ? 'pppoe' : 'hotspot',
+  }, { preserveScroll: true, onFinish: () => refresh() });
+};
+
+const doUnblock = (device) => {
+  inertiaRouter.post('/connected-devices/unblock', {
+    router_id: device.router_id,
+    ip_address: device.ip_address,
+  }, { preserveScroll: true, onFinish: () => refresh() });
+};
+
+const doKick = (device) => {
+  if (!confirm(`Disconnect ${device.user}'s ${device.sources.includes('pppoe') ? 'PPPoE' : 'hotspot'} session?`)) return;
+  inertiaRouter.post('/connected-devices/kick', {
+    router_id: device.router_id,
+    user: device.user,
+    protocol: device.sources.includes('pppoe') ? 'pppoe' : 'hotspot',
+  }, { preserveScroll: true, onFinish: () => refresh() });
+};
+
+const openSpeed = (device) => {
+  speedDevice.value = device;
+  speedForm.upload = '';
+  speedForm.download = '';
+};
+
+const submitSpeed = () => {
+  const device = speedDevice.value;
+  inertiaRouter.post('/connected-devices/queue', {
+    router_id: device.router_id,
+    ip_address: device.ip_address,
+    upload: speedForm.upload,
+    download: speedForm.download,
+  }, {
+    preserveScroll: true,
+    onFinish: () => {
+      speedDevice.value = null;
+    },
+  });
+};
+
+const doRenew = (device) => {
+  inertiaRouter.post(`/connected-devices/${device.managed_device_id}/renew`, {}, {
+    preserveScroll: true,
+    onFinish: () => refresh(),
+  });
+};
+
+const doDisable = (device) => {
+  if (!confirm(`Disable access for ${device.mac_address}? The L2 gate will block it immediately.`)) return;
+  inertiaRouter.post(`/connected-devices/${device.managed_device_id}/disable`, {}, {
+    preserveScroll: true,
+    onFinish: () => refresh(),
+  });
+};
+
+// ---- Styling helpers ----
 
 const statusClass = (status) => ({
   online: 'bg-emerald-950 text-emerald-400 border border-emerald-800',

@@ -168,6 +168,7 @@ class ConnectedDeviceService
                 : null;
 
             $device['managed_device_id'] = $managed?->id;
+            $device['managed_client_id'] = $managed?->client_id;
             $device['client_name'] = $managed?->client?->name;
             $device['typology'] = $managed?->type ?? $this->heuristicType($device);
 
@@ -256,6 +257,7 @@ class ConnectedDeviceService
             'neighbor_platform' => null,
             'neighbor_interface' => null,
             'managed_device_id' => null,
+            'managed_client_id' => null,
             'client_name' => null,
             'typology' => 'unknown',
             'typology_label' => 'Unknown / Guest',

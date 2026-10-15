@@ -48,8 +48,15 @@ Route::middleware(['web'])->group(function () {
     Route::post('devices/{device}/disable', [ClientController::class, 'disableDevice'])->name('devices.disable');
     Route::post('devices/{device}/enable', [ClientController::class, 'enableDevice'])->name('devices.enable');
 
-    // Live connected devices (ARP / DHCP / Hotspot / PPPoE merged)
+    // Live connected devices (ARP / DHCP / Hotspot / PPPoE merged) + management
     Route::get('connected-devices', [ConnectedDeviceController::class, 'index'])->name('connected-devices.index');
+    Route::post('connected-devices', [ConnectedDeviceController::class, 'store'])->name('connected-devices.store');
+    Route::post('connected-devices/block', [ConnectedDeviceController::class, 'block'])->name('connected-devices.block');
+    Route::post('connected-devices/unblock', [ConnectedDeviceController::class, 'unblock'])->name('connected-devices.unblock');
+    Route::post('connected-devices/kick', [ConnectedDeviceController::class, 'kick'])->name('connected-devices.kick');
+    Route::post('connected-devices/queue', [ConnectedDeviceController::class, 'queue'])->name('connected-devices.queue');
+    Route::post('connected-devices/{device}/renew', [ConnectedDeviceController::class, 'renew'])->name('connected-devices.renew');
+    Route::post('connected-devices/{device}/disable', [ConnectedDeviceController::class, 'disable'])->name('connected-devices.disable');
 
     // Wallet (manual adjustments — Monetbil top-ups come via the payment gateway)
     Route::post('clients/{client}/wallet/topup', [WalletController::class, 'topup'])->name('wallet.topup');

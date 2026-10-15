@@ -161,24 +161,34 @@
                 <thead class="bg-slate-900/60 text-[11px] uppercase text-slate-400">
                   <tr>
                     <th class="px-3 py-2">Profile Name</th>
-                    <th class="px-3 py-2">Rate Limit (Up/Down)</th>
-                    <th class="px-3 py-2">Session Timeout</th>
-                    <th class="px-3 py-2">Idle Timeout</th>
-                    <th class="px-3 py-2">Shared Users</th>
-                    <th class="px-3 py-2">Address Pool</th>
+                    <th class="px-3 py-2">Hotspot Address</th>
+                    <th class="px-3 py-2">DNS Name</th>
+                    <th class="px-3 py-2">Login By</th>
+                    <th class="px-3 py-2">Cookie Lifetime</th>
+                    <th class="px-3 py-2">RADIUS</th>
+                    <th class="px-3 py-2">MAC Auth</th>
+                    <th class="px-3 py-2">Default</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-700/40">
                   <tr v-for="p in profiles.hotspot_profiles" :key="'hs-' + p.name">
                     <td class="px-3 py-2 font-mono font-bold text-white">{{ p.name }}</td>
-                    <td class="px-3 py-2 font-mono text-emerald-400">{{ p['rate-limit'] || 'unlimited' }}</td>
-                    <td class="px-3 py-2 font-mono">{{ p['session-timeout'] || '—' }}</td>
-                    <td class="px-3 py-2 font-mono">{{ p['idle-timeout'] || '—' }}</td>
-                    <td class="px-3 py-2 font-mono">{{ p['shared-users'] || '—' }}</td>
-                    <td class="px-3 py-2 font-mono">{{ p['address-pool'] || '—' }}</td>
+                    <td class="px-3 py-2 font-mono text-emerald-400">{{ p['hotspot-address'] && p['hotspot-address'] !== '0.0.0.0' ? p['hotspot-address'] : '—' }}</td>
+                    <td class="px-3 py-2 font-mono">{{ p['dns-name'] || '—' }}</td>
+                    <td class="px-3 py-2 font-mono text-[11px]">{{ p['login-by'] || '—' }}</td>
+                    <td class="px-3 py-2 font-mono">{{ p['http-cookie-lifetime'] || '—' }}</td>
+                    <td class="px-3 py-2">
+                      <span v-if="p['use-radius'] === 'true'" class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-indigo-950 text-indigo-300 border border-indigo-800">On</span>
+                      <span v-else class="text-slate-500">Off</span>
+                    </td>
+                    <td class="px-3 py-2 font-mono text-[11px]">{{ p['mac-auth-mode'] || '—' }}</td>
+                    <td class="px-3 py-2">
+                      <span v-if="p['default'] === 'true'" class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-950 text-amber-300 border border-amber-800">Default</span>
+                      <span v-else class="text-slate-500">—</span>
+                    </td>
                   </tr>
                   <tr v-if="!profiles.hotspot_profiles.length">
-                    <td colspan="6" class="px-3 py-4 text-center text-slate-500">No hotspot profiles configured on this router.</td>
+                    <td colspan="8" class="px-3 py-4 text-center text-slate-500">No hotspot profiles configured on this router.</td>
                   </tr>
                 </tbody>
               </table>
@@ -193,24 +203,31 @@
                 <thead class="bg-slate-900/60 text-[11px] uppercase text-slate-400">
                   <tr>
                     <th class="px-3 py-2">Profile Name</th>
-                    <th class="px-3 py-2">Rate Limit (Up/Down)</th>
-                    <th class="px-3 py-2">Remote Address</th>
-                    <th class="px-3 py-2">Local Address</th>
                     <th class="px-3 py-2">Only One</th>
-                    <th class="px-3 py-2">DNS Servers</th>
+                    <th class="px-3 py-2">Compression</th>
+                    <th class="px-3 py-2">Encryption</th>
+                    <th class="px-3 py-2">Change TCP MSS</th>
+                    <th class="px-3 py-2">IPv6</th>
+                    <th class="px-3 py-2">MPLS</th>
+                    <th class="px-3 py-2">Default</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-700/40">
                   <tr v-for="p in profiles.pppoe_profiles" :key="'pp-' + p.name">
                     <td class="px-3 py-2 font-mono font-bold text-white">{{ p.name }}</td>
-                    <td class="px-3 py-2 font-mono text-emerald-400">{{ p['rate-limit'] || 'unlimited' }}</td>
-                    <td class="px-3 py-2 font-mono">{{ p['remote-address'] || '—' }}</td>
-                    <td class="px-3 py-2 font-mono">{{ p['local-address'] || '—' }}</td>
                     <td class="px-3 py-2 font-mono">{{ p['only-one'] || '—' }}</td>
-                    <td class="px-3 py-2 font-mono">{{ p['dns-server'] || '—' }}</td>
+                    <td class="px-3 py-2 font-mono">{{ p['use-compression'] || '—' }}</td>
+                    <td class="px-3 py-2 font-mono">{{ p['use-encryption'] || '—' }}</td>
+                    <td class="px-3 py-2 font-mono">{{ p['change-tcp-mss'] || '—' }}</td>
+                    <td class="px-3 py-2 font-mono">{{ p['use-ipv6'] || '—' }}</td>
+                    <td class="px-3 py-2 font-mono">{{ p['use-mpls'] || '—' }}</td>
+                    <td class="px-3 py-2">
+                      <span v-if="p['default'] === 'true'" class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-950 text-blue-300 border border-blue-800">Default</span>
+                      <span v-else class="text-slate-500">—</span>
+                    </td>
                   </tr>
                   <tr v-if="!profiles.pppoe_profiles.length">
-                    <td colspan="6" class="px-3 py-4 text-center text-slate-500">No PPP profiles configured on this router.</td>
+                    <td colspan="8" class="px-3 py-4 text-center text-slate-500">No PPP profiles configured on this router.</td>
                   </tr>
                 </tbody>
               </table>

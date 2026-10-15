@@ -48,24 +48,24 @@
     <!-- Main Column -->
     <div class="flex-1 min-w-0 flex flex-col">
       <!-- Flash Notifications -->
-      <div v-if="$page.props.flash?.success" class="max-w-7xl mx-auto px-6 mt-4 w-full">
+      <div v-if="$page.props.flash?.success" class="px-6 mt-4 w-full" :class="fullWidth ? '' : 'max-w-7xl mx-auto'">
         <div class="p-4 bg-emerald-900/40 border border-emerald-600/50 rounded-lg text-emerald-300 flex items-center justify-between">
           <span>{{ $page.props.flash.success }}</span>
         </div>
       </div>
-      <div v-if="$page.props.flash?.warning" class="max-w-7xl mx-auto px-6 mt-4 w-full">
+      <div v-if="$page.props.flash?.warning" class="px-6 mt-4 w-full" :class="fullWidth ? '' : 'max-w-7xl mx-auto'">
         <div class="p-4 bg-amber-900/40 border border-amber-600/50 rounded-lg text-amber-300 flex items-center justify-between">
           <span>{{ $page.props.flash.warning }}</span>
         </div>
       </div>
-      <div v-if="$page.props.flash?.error" class="max-w-7xl mx-auto px-6 mt-4 w-full">
+      <div v-if="$page.props.flash?.error" class="px-6 mt-4 w-full" :class="fullWidth ? '' : 'max-w-7xl mx-auto'">
         <div class="p-4 bg-rose-900/40 border border-rose-600/50 rounded-lg text-rose-300 flex items-center justify-between">
           <span>{{ $page.props.flash.error }}</span>
         </div>
       </div>
 
       <!-- Main Content Area -->
-      <main class="flex-1 max-w-7xl mx-auto w-full px-6 py-8">
+      <main class="flex-1 w-full px-6 py-8" :class="fullWidth ? 'max-w-none' : 'max-w-7xl mx-auto'">
         <slot />
       </main>
     </div>
@@ -74,6 +74,13 @@
 
 <script setup>
 import { usePage } from '@inertiajs/vue3';
+
+defineProps({
+  fullWidth: {
+    type: Boolean,
+    default: false,
+  },
+});
 
 const page = usePage();
 
