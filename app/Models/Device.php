@@ -104,9 +104,14 @@ class Device extends Model
 
     /**
      * Re-grant access and restart the calendar access period from today.
+     * Pass $days to override the stored access_duration_days for this renewal.
      */
-    public function renewLanAccess(): array
+    public function renewLanAccess(?int $days = null): array
     {
+        if ($days !== null && $days > 0) {
+            $this->access_duration_days = $days;
+        }
+
         $this->access_expires_at = Carbon::now()->addDays((int) $this->access_duration_days);
         $this->save();
 

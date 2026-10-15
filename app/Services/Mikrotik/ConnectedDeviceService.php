@@ -170,6 +170,10 @@ class ConnectedDeviceService
             $device['managed_device_id'] = $managed?->id;
             $device['managed_client_id'] = $managed?->client_id;
             $device['client_name'] = $managed?->client?->name;
+            $device['access_duration_days'] = $managed?->access_duration_days;
+            $device['access_expires_at'] = $managed?->access_expires_at?->toIso8601String();
+            $device['access_is_active'] = $managed?->is_active;
+            $device['access_expired'] = $managed ? $managed->isAccessExpired() : null;
             $device['typology'] = $managed?->type ?? $this->heuristicType($device);
 
             $type = DeviceType::tryFrom($device['typology']);
@@ -259,6 +263,10 @@ class ConnectedDeviceService
             'managed_device_id' => null,
             'managed_client_id' => null,
             'client_name' => null,
+            'access_duration_days' => null,
+            'access_expires_at' => null,
+            'access_is_active' => null,
+            'access_expired' => null,
             'typology' => 'unknown',
             'typology_label' => 'Unknown / Guest',
             'typology_color' => 'zinc',

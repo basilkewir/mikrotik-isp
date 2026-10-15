@@ -70,6 +70,7 @@ class ConnectedDeviceController extends Controller
             'ip_address' => 'nullable|ip',
             'hostname' => 'nullable|string|max:100',
             'comment' => 'nullable|string|max:150',
+            'access_duration_days' => 'nullable|integer|min:1|max:3650',
         ]);
 
         $mac = strtoupper($validated['mac_address']);
@@ -79,6 +80,8 @@ class ConnectedDeviceController extends Controller
         }
 
         $type = DeviceType::from($validated['type']);
+        $isCustomerEdge = $type->isCustomerEdge();
+        $days = $isCustomerEdge ? (int) ($validated['access_duration_days'] ?? 30) : null;
 
         $device = Device::create([
             'router_id' => $validated['router_id'],
@@ -89,11 +92,11 @@ class ConnectedDeviceController extends Controller
             'comment' => $validated['comment'] ?? null,
             'type' => $type->value,
             'is_active' => true,
-            'access_duration_days' => $type->isCustomerEdge() ? 30 : null,
-            'access_expires_at' => $type->isCustomerEdge() ? now()->addDays(30) : null,
+            'access_duration_days' => $days,
+            'access_expires_at' => $days !== null ? now()->addDays($days) : null,
         ]);
 
-        if ($type->isCustomerEdge() && $device->router) {
+        if ($isCustomerEdge && $device->router) {
             try {
                 $device->provisionLanAccess();
             } catch (Exception $exception) {
@@ -101,7 +104,9 @@ class ConnectedDeviceController extends Controller
             }
         }
 
-        return back()->with('success', "Device {$mac} onboarded as " . $type->label() . '.');
+        $suffix = $days !== null ? " Access set to {$days} days (expires {$device->access_expires_at->toDateString()})." : '';
+
+        return back()->with('success', "Device {$mac} onboarded as " . $type->label() . '.' . $suffix);
     }
 
     /**
@@ -215,13 +220,23 @@ class ConnectedDeviceController extends Controller
 
     /**
      * Renew (re-grant) access for a managed customer-edge device.
+     * Optionally override the access duration (in days) for this renewal.
      */
-    public function renew(Device $device): RedirectResponse
+    public function renew(Request $request, Device $device): RedirectResponse
     {
-        try {
-            $device->renewLanAccess();
+        $validated = $request->validate([
+            'access_duration_days' => 'nullable|integer|min:1|max:3650',
+        ]);
 
-            return back()->with('success', "Access renewed for {$device->mac_address} until {$device->fresh()->access_expires_at->toDateTimeString()}.");
+        $days = !empty($validated['access_duration_days']) ? (int) $validated['access_duration_days'] : null;
+
+        try {
+            $device->renewLanAccess($days);
+
+            $fresh = $device->fresh();
+            $used = $days ?? $fresh->access_duration_days;
+
+            return back()->with('success', "Access renewed for {$used} days — {$device->mac_address} valid until {$fresh->access_expires_at->toDateString()}.");
         } catch (Exception $exception) {
             return back()->with('error', "Failed to renew access: " . $exception->getMessage());
         }

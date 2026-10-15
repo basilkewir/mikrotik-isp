@@ -123,6 +123,10 @@
                 </span>
                 <span v-if="device.client_name" class="block text-[11px] text-emerald-400 mt-0.5">{{ device.client_name }}</span>
                 <span v-else-if="!device.managed_device_id" class="block text-[11px] text-slate-500 mt-0.5">Guest</span>
+                <span v-if="device.managed_device_id && device.access_expires_at" class="block text-[10px] font-mono mt-0.5"
+                  :class="device.access_expired ? 'text-rose-400' : 'text-slate-400'">
+                  {{ device.access_expired ? 'expired' : 'exp' }} {{ new Date(device.access_expires_at).toLocaleDateString() }}
+                </span>
               </td>
               <td class="px-4 py-3 text-xs font-medium text-white">{{ device.router_name }}</td>
               <td class="px-4 py-3 text-xs font-mono">{{ device.ip_address || '—' }}</td>
@@ -197,7 +201,7 @@
               Onboard to Inventory
             </button>
             <template v-if="selected.managed_device_id">
-              <button @click="doRenew(selected)" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition">
+              <button @click="openRenew(selected)" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition">
                 Renew Access
               </button>
               <button @click="doDisable(selected)" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold transition">
@@ -220,6 +224,15 @@
               Set Speed Limit
             </button>
           </div>
+          <!-- Access status for managed customer-edge devices -->
+          <div v-if="selected.managed_device_id" class="mt-3 pt-3 border-t border-slate-800/60 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            <span class="text-slate-400">Access:</span>
+            <span v-if="selected.access_expired" class="px-2 py-0.5 rounded font-bold uppercase bg-rose-950 text-rose-400 border border-rose-800">Expired</span>
+            <span v-else-if="selected.access_is_active" class="px-2 py-0.5 rounded font-bold uppercase bg-emerald-950 text-emerald-400 border border-emerald-800">Active</span>
+            <span v-else class="px-2 py-0.5 rounded font-bold uppercase bg-slate-700 text-slate-300 border border-slate-600">Inactive</span>
+            <span v-if="selected.access_expires_at" class="text-slate-300 font-mono">expires {{ new Date(selected.access_expires_at).toLocaleDateString() }}</span>
+            <span v-if="selected.access_duration_days" class="text-slate-400 font-mono">· {{ selected.access_duration_days }}-day period</span>
+          </div>
         </div>
 
         <!-- Merged summary -->
@@ -231,6 +244,8 @@
             <Detail label="Typology" :value="selected.typology_label" />
             <Detail label="Client" :value="selected.client_name" />
             <Detail label="Blocked" :value="boolText(selected.is_blocked)" />
+            <Detail label="Access Expires" :value="selected.access_expires_at ? new Date(selected.access_expires_at).toLocaleDateString() : null" />
+            <Detail label="Access Period" :value="selected.access_duration_days ? selected.access_duration_days + ' days' : null" />
             <Detail label="IP Address" :value="selected.ip_address" />
             <Detail label="MAC Address" :value="selected.mac_address" />
             <Detail label="Hostname" :value="selected.hostname" />
@@ -301,6 +316,23 @@
               <option v-for="c in clients" :key="c.id" :value="String(c.id)">{{ c.name }} ({{ c.client_code }})</option>
             </select>
           </div>
+          <div v-if="isCustomerEdge(onboardForm.type)">
+            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Access Duration</label>
+            <div class="flex flex-wrap gap-2 mb-2">
+              <button v-for="d in durationPresets" :key="d" type="button" @click="onboardForm.access_days = d"
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                :class="onboardForm.access_days === d ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-300 border border-slate-700 hover:bg-slate-700'">
+                {{ d }} days
+              </button>
+              <button type="button" @click="onboardForm.access_days = 'custom'"
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                :class="onboardForm.access_days === 'custom' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-300 border border-slate-700 hover:bg-slate-700'">
+                Custom
+              </button>
+            </div>
+            <input v-if="onboardForm.access_days === 'custom'" v-model.number="onboardForm.custom_days" type="number" min="1" max="3650" placeholder="Number of days" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white" />
+            <p class="text-[11px] text-slate-500 mt-1">Access expires this many days from now (calendar-based).</p>
+          </div>
           <div>
             <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Comment <span class="normal-case font-normal text-slate-500">(optional)</span></label>
             <input v-model="onboardForm.comment" type="text" maxlength="150" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white" />
@@ -337,6 +369,39 @@
         </form>
       </div>
     </div>
+
+    <!-- Renew Access Modal -->
+    <div v-if="renewDevice" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div class="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-sm p-6 shadow-2xl">
+        <h3 class="text-lg font-bold text-white mb-1">Renew Access</h3>
+        <p class="text-xs text-slate-400 font-mono mb-4">{{ renewDevice.mac_address }} · {{ renewDevice.hostname || renewDevice.ip_address || '' }}</p>
+        <form @submit.prevent="submitRenew" class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Access Duration</label>
+            <div class="flex flex-wrap gap-2 mb-2">
+              <button v-for="d in durationPresets" :key="d" type="button" @click="renewForm.access_days = d"
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                :class="renewForm.access_days === d ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-300 border border-slate-700 hover:bg-slate-700'">
+                {{ d }} days
+              </button>
+              <button type="button" @click="renewForm.access_days = 'custom'"
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                :class="renewForm.access_days === 'custom' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-300 border border-slate-700 hover:bg-slate-700'">
+                Custom
+              </button>
+            </div>
+            <input v-if="renewForm.access_days === 'custom'" v-model.number="renewForm.custom_days" type="number" min="1" max="3650" placeholder="Number of days" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white" />
+            <p v-if="renewDevice.access_expires_at" class="text-[11px] text-slate-500 mt-1">
+              Currently expires {{ new Date(renewDevice.access_expires_at).toLocaleDateString() }}. Renewing restarts the clock from today.
+            </p>
+          </div>
+          <div class="flex justify-end gap-3 pt-3 border-t border-slate-700/60">
+            <button type="button" @click="renewDevice = null" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition">Cancel</button>
+            <button type="submit" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold transition">Renew</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </AppLayout>
 </template>
 
@@ -367,10 +432,18 @@ const loading = ref(false);
 const selected = ref(null);
 
 const onboardDevice = ref(null);
-const onboardForm = reactive({ type: 'cpe', client_id: '', comment: '' });
+const onboardForm = reactive({ type: 'cpe', client_id: '', comment: '', access_days: 30, custom_days: null });
 
 const speedDevice = ref(null);
 const speedForm = reactive({ upload: '', download: '' });
+
+const renewDevice = ref(null);
+const renewForm = reactive({ access_days: 30, custom_days: null });
+
+const durationPresets = [15, 30, 60, 90];
+
+const CUSTOMER_EDGE_TYPES = ['cpe', 'hotspot_client', 'bridge_client', 'onu'];
+const isCustomerEdge = (type) => CUSTOMER_EDGE_TYPES.includes(type);
 
 let timer = null;
 
@@ -426,11 +499,15 @@ const openOnboard = (device) => {
   onboardForm.type = device.typology && device.typology !== 'unknown' ? device.typology : 'cpe';
   onboardForm.client_id = '';
   onboardForm.comment = device.comment || '';
+  onboardForm.access_days = 30;
+  onboardForm.custom_days = null;
 };
+
+const resolvedDays = (form) => (form.access_days === 'custom' ? Number(form.custom_days) || 30 : form.access_days);
 
 const submitOnboard = () => {
   const device = onboardDevice.value;
-  inertiaRouter.post('/connected-devices', {
+  const payload = {
     router_id: device.router_id,
     mac_address: device.mac_address,
     type: onboardForm.type,
@@ -438,10 +515,33 @@ const submitOnboard = () => {
     ip_address: device.ip_address || null,
     hostname: device.hostname || null,
     comment: onboardForm.comment || null,
-  }, {
+  };
+  if (isCustomerEdge(onboardForm.type)) {
+    payload.access_duration_days = resolvedDays(onboardForm);
+  }
+  inertiaRouter.post('/connected-devices', payload, {
     preserveScroll: true,
     onFinish: () => {
       onboardDevice.value = null;
+      refresh();
+    },
+  });
+};
+
+const openRenew = (device) => {
+  renewDevice.value = device;
+  renewForm.access_days = device.access_duration_days || 30;
+  renewForm.custom_days = null;
+};
+
+const submitRenew = () => {
+  const device = renewDevice.value;
+  inertiaRouter.post(`/connected-devices/${device.managed_device_id}/renew`, {
+    access_duration_days: resolvedDays(renewForm),
+  }, {
+    preserveScroll: true,
+    onFinish: () => {
+      renewDevice.value = null;
       refresh();
     },
   });
@@ -491,13 +591,6 @@ const submitSpeed = () => {
     onFinish: () => {
       speedDevice.value = null;
     },
-  });
-};
-
-const doRenew = (device) => {
-  inertiaRouter.post(`/connected-devices/${device.managed_device_id}/renew`, {}, {
-    preserveScroll: true,
-    onFinish: () => refresh(),
   });
 };
 
