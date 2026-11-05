@@ -35,13 +35,26 @@
       </nav>
 
       <!-- System Status -->
-      <div class="border-t border-slate-700 px-3 py-4">
+      <div class="border-t border-slate-700 px-3 py-4 space-y-3">
         <span
           class="flex items-center justify-center md:justify-start space-x-2 px-3 py-2 rounded-full text-xs font-medium bg-emerald-900/60 text-emerald-400 border border-emerald-700/50"
         >
           <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
           <span class="hidden md:inline">Daemon Active</span>
         </span>
+
+        <div v-if="$page.props.auth?.user" class="flex items-center justify-between gap-2">
+          <div class="hidden md:block min-w-0">
+            <p class="text-xs font-semibold text-white truncate">{{ $page.props.auth.user.name }}</p>
+            <p class="text-[11px] text-slate-400 truncate">{{ $page.props.auth.user.email }}</p>
+          </div>
+          <Link href="/logout" method="post" as="button" class="shrink-0 text-xs px-2 py-1.5 rounded bg-slate-700 hover:bg-rose-800 text-slate-200 transition" title="Sign out">
+            <span class="hidden md:inline">Sign out</span>
+            <svg class="w-4 h-4 md:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+          </Link>
+        </div>
       </div>
     </aside>
 
@@ -73,7 +86,7 @@
 </template>
 
 <script setup>
-import { usePage } from '@inertiajs/vue3';
+import { usePage, Link } from '@inertiajs/vue3';
 
 defineProps({
   fullWidth: {

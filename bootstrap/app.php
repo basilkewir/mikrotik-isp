@@ -21,8 +21,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'payments/monetbil/notify',
         ]);
 
-        // No admin auth yet — unauthenticated users are sent to the subscriber portal login.
-        $middleware->redirectGuestsTo(fn () => url('/portal/login'));
+        // Operators authenticate at the admin login; the subscriber portal has
+        // its own guard and never uses this redirect.
+        $middleware->redirectGuestsTo(fn () => url('/login'));
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

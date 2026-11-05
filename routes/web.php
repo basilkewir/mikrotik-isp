@@ -25,7 +25,14 @@ Route::get('/', function () {
     return redirect()->route('dashboard');
 });
 
-Route::middleware(['web'])->group(function () {
+// Operator (admin) authentication.
+Route::middleware('guest')->group(function () {
+    Route::get('/login', [\App\Http\Controllers\Auth\AdminAuthController::class, 'showLogin'])->name('login');
+    Route::post('/login', [\App\Http\Controllers\Auth\AdminAuthController::class, 'login']);
+});
+Route::post('/logout', [\App\Http\Controllers\Auth\AdminAuthController::class, 'logout'])->name('logout');
+
+Route::middleware(['web', 'auth'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
     // Routers

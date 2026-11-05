@@ -25,6 +25,12 @@ class DefaultPlanTest extends TestCase
     {
         parent::setUp();
 
+        $this->actingAs(\App\Models\User::create([
+            'name' => 'Operator',
+            'email' => 'operator@test.local',
+            'password' => bcrypt('secret'),
+        ]));
+
         $this->fake = new FakeMikrotikService();
         $this->app->instance(MikrotikService::class, $this->fake);
 
