@@ -32,6 +32,7 @@ Route::middleware(['web'])->group(function () {
     Route::resource('routers', RouterController::class)->only(['index', 'store', 'destroy']);
     Route::put('routers/{router}', [RouterController::class, 'update'])->name('routers.update');
     Route::get('routers/{router}/profiles', [RouterController::class, 'profiles'])->name('routers.profiles');
+    Route::get('routers/{router}/agent-script', [RouterController::class, 'agentScript'])->name('routers.agent-script');
     Route::get('routers/{router}/firewall-policy', [RouterController::class, 'firewallPolicy'])->name('routers.firewall-policy');
     Route::post('routers/{router}/firewall-policy', [RouterController::class, 'installFirewallPolicy'])->name('routers.firewall-policy.install');
     Route::delete('routers/{router}/firewall-policy', [RouterController::class, 'removeFirewallPolicy'])->name('routers.firewall-policy.remove');

@@ -50,6 +50,30 @@
             </div>
           </div>
           <p v-if="router.connection_error" class="mb-4 text-xs text-rose-300">{{ router.connection_error }}</p>
+
+          <div class="text-xs text-slate-300 font-mono bg-slate-900/50 p-3 rounded-lg border border-slate-700/40">
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-slate-500">Agent bridge:</span>
+              <span class="px-2 py-0.5 rounded font-bold" :class="router.agent_online ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-slate-800 text-slate-400 border border-slate-600'">
+                {{ router.agent_online ? 'CONNECTED' : 'NOT SEEN' }}
+              </span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-500">Last push:</span>
+              <span>{{ router.agent_last_seen_at ? new Date(router.agent_last_seen_at).toLocaleString() : 'Never' }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-500">Live sessions:</span>
+              <span>{{ router.agent_sessions_count }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-500">Queued commands:</span>
+              <span>{{ router.agent_pending_commands }}</span>
+            </div>
+            <p class="text-[11px] text-slate-500 mt-2">
+              Use this when the VPS cannot reach the router directly. Run the agent script on the router so it pushes status and pulls actions.
+            </p>
+          </div>
         </div>
 
         <div class="pt-3 border-t border-slate-700/40 space-y-3">
@@ -66,6 +90,9 @@
             <button @click="openProfiles(router)" class="flex-1 text-xs px-3 py-1.5 bg-indigo-900/60 hover:bg-indigo-800 text-indigo-300 rounded font-medium transition">
               View Router Plans
             </button>
+            <a :href="`/routers/${router.id}/agent-script`" target="_blank" class="text-xs px-3 py-1.5 bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 rounded font-medium transition" title="RouterOS script for the reverse push/pull link">
+              Agent Script
+            </a>
             <button @click="openEdit(router)" class="text-xs px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded font-medium transition">
               Edit
             </button>

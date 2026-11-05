@@ -23,12 +23,14 @@ class RouterController extends Controller
 
                 return [
                     ...$snapshot['router'],
+                    ...$this->agentFields($router),
                     'hotspot_users_count' => count(array_filter($users, fn (array $user) => $user['auth_type'] === 'hotspot')),
                     'pppoe_users_count' => count(array_filter($users, fn (array $user) => $user['auth_type'] === 'pppoe')),
                 ];
             } catch (Exception $exception) {
                 return [
                     ...$router->fresh()->toArray(),
+                    ...$this->agentFields($router),
                     'hotspot_users_count' => null,
                     'pppoe_users_count' => null,
                     'connection_error' => $exception->getMessage(),
@@ -39,6 +41,39 @@ class RouterController extends Controller
         return Inertia::render('Routers/Index', [
             'routers' => $routers,
         ]);
+    }
+
+    /**
+     * Agent-bridge fields shown in the routers UI: whether the router has
+     * pushed recently, plus its live pushed session count.
+     *
+     * @return array<string, mixed>
+     */
+    private function agentFields(Router $router): array
+    {
+        return [
+            'agent_last_seen_at' => $router->agent_last_seen_at?->toIso8601String(),
+            'agent_source_ip' => $router->agent_source_ip,
+            'agent_online' => $router->agent_last_seen_at !== null
+                && $router->agent_last_seen_at->gt(now()->subMinutes(3)),
+            'agent_sessions_count' => $router->sessions()->count(),
+            'agent_pending_commands' => $router->agentCommands()
+                ->whereIn('status', ['pending', 'delivered'])
+                ->count(),
+        ];
+    }
+
+    /**
+     * The RouterOS script the operator pastes/schedules on the router to
+     * establish the reverse (push/pull) link when the platform cannot reach
+     * the router directly.
+     */
+    public function agentScript(Request $request, Router $router, \App\Services\Mikrotik\RouterAgentScript $script): \Illuminate\Http\Response
+    {
+        $baseUrl = $request->getSchemeAndHttpHost();
+
+        return response($script->build($router, $baseUrl))
+            ->header('Content-Type', 'text/plain');
     }
 
     public function store(Request $request): RedirectResponse

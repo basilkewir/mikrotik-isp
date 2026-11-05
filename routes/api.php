@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\HotspotPortalController;
+use App\Http\Controllers\Api\RouterAgentController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -18,3 +19,14 @@ Route::get('/hotspot/plans', [HotspotPortalController::class, 'plans'])
 Route::post('/hotspot/register', [HotspotPortalController::class, 'register'])
     ->middleware('throttle:6,1')
     ->name('api.hotspot.register');
+
+/*
+|--------------------------------------------------------------------------
+| Router agent bridge (router -> VPS push/pull)
+|--------------------------------------------------------------------------
+| The router authenticates with its agent token (Bearer). Throttled so a
+| misconfigured script cannot hammer the API.
+*/
+Route::post('/router-agent/sync', [RouterAgentController::class, 'sync'])
+    ->middleware('throttle:120,1')
+    ->name('api.router-agent.sync');

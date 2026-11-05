@@ -17,6 +17,9 @@ class Router extends Model
         'api_port',
         'api_username',
         'api_password',
+        'agent_token',
+        'agent_last_seen_at',
+        'agent_source_ip',
         'use_ssl',
         'identity',
         'is_online',
@@ -34,6 +37,7 @@ class Router extends Model
         'use_ssl' => 'boolean',
         'is_online' => 'boolean',
         'last_seen_at' => 'datetime',
+        'agent_last_seen_at' => 'datetime',
         'api_port' => 'integer',
         'cpu_load' => 'integer',
         'total_memory' => 'integer',
@@ -57,6 +61,28 @@ class Router extends Model
     public function activityLogs(): HasMany
     {
         return $this->hasMany(RouterActivityLog::class);
+    }
+
+    public function sessions(): HasMany
+    {
+        return $this->hasMany(RouterSession::class);
+    }
+
+    public function agentCommands(): HasMany
+    {
+        return $this->hasMany(RouterAgentCommand::class);
+    }
+
+    /**
+     * Ensure this router has an agent token for the push/pull bridge.
+     */
+    public function ensureAgentToken(): string
+    {
+        if (empty($this->agent_token)) {
+            $this->forceFill(['agent_token' => bin2hex(random_bytes(24))])->save();
+        }
+
+        return $this->agent_token;
     }
 
     /**
