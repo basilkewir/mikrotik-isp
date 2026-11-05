@@ -85,9 +85,14 @@ class RouterController extends Controller
             'api_username' => 'required|string|max:100',
             'api_password' => 'required|string',
             'use_ssl' => 'boolean',
+            'uses_agent' => 'boolean',
         ]);
 
         $router = Router::create($validated);
+
+        if ($router->uses_agent) {
+            return back()->with('success', "Router '{$router->name}' added as an agent-bridged router. Open Agent Script to install the bridge on it.");
+        }
 
         // Immediate test & health fetch
         try {
@@ -119,6 +124,7 @@ class RouterController extends Controller
             'api_username' => 'required|string|max:100',
             'api_password' => 'nullable|string',
             'use_ssl' => 'boolean',
+            'uses_agent' => 'boolean',
         ]);
 
         if (empty($validated['api_password'])) {
@@ -126,6 +132,10 @@ class RouterController extends Controller
         }
 
         $router->update($validated);
+
+        if ($router->uses_agent) {
+            return back()->with('success', "Router '{$router->name}' updated. Agent-bridged routers are driven by their pushes; no direct connection is attempted.");
+        }
 
         try {
             $health = $router->service()->checkHealth();
@@ -268,6 +278,13 @@ class RouterController extends Controller
 
     public function testConnection(Router $router)
     {
+        if ($router->uses_agent) {
+            return $router->agent_last_seen_at !== null
+                && $router->agent_last_seen_at->gt(now()->subMinutes(3))
+                ? back()->with('success', "Agent-bridged router: last push {$router->agent_last_seen_at}.")
+                : back()->with('warning', 'Agent-bridged router has not pushed recently. Check the agent script/scheduler on the router.');
+        }
+
         try {
             $health = $router->service()->checkHealth();
             $router->update([

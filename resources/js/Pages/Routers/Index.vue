@@ -148,6 +148,14 @@
             <label for="use_ssl" class="text-xs text-slate-300">Use SSL / TLS (Default port 8729)</label>
           </div>
 
+          <div class="flex items-start gap-2 pt-2">
+            <input v-model="form.uses_agent" type="checkbox" id="uses_agent" class="mt-0.5 rounded bg-slate-900 border-slate-700 text-emerald-600 focus:ring-emerald-500" />
+            <label for="uses_agent" class="text-xs text-slate-300">
+              Agent bridge (router pushes to this server)
+              <span class="block text-[11px] text-slate-500">Enable when this server cannot reach the router's IP directly. The platform will not attempt a direct API connection.</span>
+            </label>
+          </div>
+
           <div class="flex justify-end gap-3 pt-4 border-t border-slate-700">
             <button type="button" @click="showRouterModal = false" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition">
               Cancel
@@ -410,6 +418,7 @@ const emptyForm = () => ({
   api_username: 'admin',
   api_password: '',
   use_ssl: false,
+  uses_agent: false,
 });
 
 const showRouterModal = ref(false);
@@ -437,6 +446,7 @@ const openEdit = (router) => {
     api_username: router.api_username || 'admin',
     api_password: '',
     use_ssl: !!router.use_ssl,
+    uses_agent: !!router.uses_agent,
   };
   showRouterModal.value = true;
 };

@@ -27,6 +27,19 @@ class SyncRouterMetrics extends Command
         foreach ($routers as $router) {
             $this->line("Syncing router '{$router->name}' ({$router->ip_address})...");
 
+            // Agent-bridged routers push their own status; never attempt a
+            // direct connection (it would only trigger login backoff).
+            if ($router->uses_agent) {
+                $online = $router->agent_last_seen_at !== null
+                    && $router->agent_last_seen_at->gt(Carbon::now()->subMinutes(3));
+
+                $router->update(['is_online' => $online]);
+                $this->info($online
+                    ? "✓ Router '{$router->name}' ONLINE via agent (last push {$router->agent_last_seen_at})."
+                    : "• Router '{$router->name}' agent not seen recently.");
+                continue;
+            }
+
             try {
                 $service = $router->service();
                 $health = $service->checkHealth();
