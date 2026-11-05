@@ -52,6 +52,10 @@
           <button @click="openEdit(plan)" class="text-xs text-indigo-400 hover:text-indigo-300 transition">
             Edit Plan
           </button>
+          <span v-if="plan.is_default" class="text-[11px] font-bold uppercase text-emerald-400">Default</span>
+          <button v-else @click="setDefault(plan.id)" class="text-xs text-emerald-400 hover:text-emerald-300 transition">
+            Set as default
+          </button>
           <button @click="deletePlan(plan.id)" class="text-xs text-rose-400 hover:text-rose-300 transition">
             Delete Plan
           </button>
@@ -175,7 +179,7 @@ const emptyForm = () => ({
   code: '',
   type: 'time',
   service_type: 'both',
-  price: 5000,
+  price: 3000,
   validity_days: 30,
   data_limit_mb: null,
   rate_limit_upload: '5M',
@@ -221,6 +225,10 @@ const submitPlan = () => {
   } else {
     inertiaRouter.post('/plans', form.value, options);
   }
+};
+
+const setDefault = (id) => {
+  inertiaRouter.post(`/plans/${id}/default`, {}, { preserveScroll: true });
 };
 
 const deletePlan = (id) => {

@@ -42,6 +42,29 @@
           </div>
         </form>
       </div>
+
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-sm">
+        <h3 class="font-bold text-white text-base mb-4">Hotspot captive portal</h3>
+
+        <p class="text-xs text-slate-400 mb-4">
+          Base URL of the hotspot login page on the router (e.g.
+          <code class="font-mono text-slate-300">http://10.5.50.1</code>).
+          After a Mobile Money payment, customers signing up from the captive portal are redirected back here.
+        </p>
+
+        <form @submit.prevent="submit" class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Hotspot portal base URL</label>
+            <input v-model="form.hotspot_portal_base_url" type="url" placeholder="http://10.5.50.1" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white" />
+          </div>
+
+          <div class="flex justify-end pt-3 border-t border-slate-700/60">
+            <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold transition">
+              Save Settings
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   </AppLayout>
 </template>
@@ -62,6 +85,7 @@ const form = ref({
   monetbil_service_key: props.settings.monetbil_service_key || '',
   monetbil_service_secret: props.settings.monetbil_service_secret || '',
   monetbil_logo_url: props.settings.monetbil_logo_url || '',
+  hotspot_portal_base_url: props.settings.hotspot_portal_base_url || '',
 });
 
 const submit = () => {

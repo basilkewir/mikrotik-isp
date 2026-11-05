@@ -61,10 +61,18 @@ class Router extends Model
 
     /**
      * Get instance of MikrotikService bound to this router.
+     *
+     * When a service is bound in the container (tests inject fakes that
+     * record calls instead of opening sockets), that instance is returned as
+     *-is — note that passing constructor parameters here would bypass the
+     * bound instance, so the router is only passed on the direct-construction
+     * path.
      */
     public function service(): MikrotikService
     {
-        return new MikrotikService($this);
+        return app()->bound(MikrotikService::class)
+            ? app(MikrotikService::class)
+            : new MikrotikService($this);
     }
 }
 

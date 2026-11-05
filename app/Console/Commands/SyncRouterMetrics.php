@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Router;
+use App\Models\RouterActivityLog;
 use App\Models\Subscription;
 use Exception;
 use Illuminate\Console\Command;
@@ -57,6 +58,32 @@ class SyncRouterMetrics extends Command
                         ->where('username', $user)
                         ->where('status', 'active')
                         ->first();
+
+                    if ($sub) {
+                        $mac = $session['mac-address'] ?? null;
+
+                        if ($mac && !$sub->allowsDevice($mac)) {
+                            $kicked = $service->kickHotspotActive($user);
+
+                            RouterActivityLog::create([
+                                'router_id' => $router->id,
+                                'subscription_id' => $sub->id,
+                                'event' => 'device_bind_rejected',
+                                'level' => 'warning',
+                                'details' => [
+                                    'username' => $user,
+                                    'mac_address' => $mac,
+                                    'device_limit' => $sub->deviceLimit(),
+                                    'bound_devices' => $sub->boundDevices()->pluck('mac_address')->all(),
+                                    'sessions_kicked' => $kicked,
+                                ],
+                                'ip_address' => $session['address'] ?? null,
+                            ]);
+
+                            $this->warn("  ↳ refused {$mac} for '{$user}' (limit {$sub->deviceLimit()} device(s)); kicked {$kicked} session(s).");
+                            continue;
+                        }
+                    }
 
                     if ($sub && $totalBytes > $sub->data_used_bytes) {
                         $sub->update([

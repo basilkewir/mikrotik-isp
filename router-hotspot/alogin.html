@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta http-equiv="refresh" content="5; url=$(link-redirect)">
+    <meta http-equiv="pragma" content="no-cache">
+    <meta http-equiv="expires" content="-1">
+    <title>Fastlink Hotspot - Redirect</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script>
+        function startClock() {
+            $(if popup == 'true')
+            open('$(link-status)', 'hotspot_status', 'toolbar=0,location=0,directories=0,status=0,menubars=0,resizable=1,width=290,height=200');
+        $(endif)
+        // Hold the success + countdown on screen for a few seconds before redirecting.
+        setTimeout(function () { location.href = unescape('$(link-redirect-esc)'); }, 5000);
+        }
+
+    </script> 
+</head>
+
+<body onLoad="startClock()">
+    <div class="ie-fixMinHeight">
+        <div class="main">
+            <div class="wrap">
+                <img class="logo" src="img/fastlink-logo.svg" alt="Fastlink" style="display:block;width:200px;height:60px;margin:0 auto 12px;" />
+                <h1>Connected to Fastlink!</h1>
+                <p class="info">Connected successfully / Connexion réussie</p>
+
+                <!-- OrbitLink bilingual days-remaining notice -->
+                <div id="orbit-remaining" style="display:none;margin:12px 0;padding:10px 12px;border-radius:10px;background:#eef4ff;color:#0b3d91;font-size:13px;line-height:1.4;"></div>
+                <script>
+                (function () {
+                    var base = 'http://192.168.20.32:8000';
+                    var username = '$(username)';
+                    var mac = '$(mac)';
+                    if (!username && !mac) return;
+                    fetch(base + '/captive.php?action=remaining&username=' + encodeURIComponent(username) + '&mac=' + encodeURIComponent(mac))
+                        .then(function (r) { return r.json(); })
+                        .then(function (d) {
+                            if (!d || typeof d.days === 'undefined' || d.days === null) return;
+                            var el = document.getElementById('orbit-remaining');
+                            var until = d.until ? ' (until ' + d.until + ')' : '';
+                            var untilFr = d.until ? " (jusqu'au " + d.until + ')' : '';
+                            el.innerHTML = '<strong>' + d.en + '</strong>' + until + '<br><strong>' + d.fr + '</strong>' + untilFr;
+                            el.style.display = 'block';
+                        })
+                        .catch(function () {});
+                })();
+                </script>
+
+                <p class="info">If nothing happens, click <a href="$(link-redirect)">here</a></p>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

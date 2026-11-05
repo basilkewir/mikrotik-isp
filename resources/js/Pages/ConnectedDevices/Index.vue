@@ -10,7 +10,7 @@
       <div class="flex items-center gap-3">
         <label class="flex items-center gap-2 text-xs text-slate-400 select-none">
           <input v-model="autoRefresh" type="checkbox" class="rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-indigo-500" />
-          Auto-refresh 10s
+          Live traffic (5s)
         </label>
         <button @click="refresh" :disabled="loading" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-sm font-semibold shadow transition">
           {{ loading ? 'Refreshing…' : 'Refresh' }}
@@ -155,13 +155,16 @@
                 <span class="text-emerald-400">{{ formatBytes(device.bytes_in) }}</span>
                 <span class="text-slate-600"> / </span>
                 <span class="text-amber-400">{{ formatBytes(device.bytes_out) }}</span>
+                <span class="block text-[11px] font-mono" :class="device.counter_available ? 'text-sky-300' : 'text-slate-600'">
+                  {{ rateLabel(device, 'rate_in') }} / {{ rateLabel(device, 'rate_out') }}
+                </span>
               </td>
               <td class="px-4 py-3 text-right whitespace-nowrap">
                 <div class="inline-flex items-center gap-1">
-                  <button @click="selected = device" class="text-[11px] px-2 py-1 bg-slate-700 hover:bg-slate-600 text-indigo-300 rounded font-medium transition" title="Details & all actions">Details</button>
+                  <button @click="openDevice(device)" class="text-[11px] px-2 py-1 bg-slate-700 hover:bg-slate-600 text-indigo-300 rounded font-medium transition" title="Details, comment & all actions">Details</button>
                   <button v-if="!device.managed_device_id && device.mac_address" @click="openOnboard(device)" class="text-[11px] px-2 py-1 bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 rounded font-medium transition" title="Add to managed inventory">Onboard</button>
                   <button v-if="device.is_blocked" @click="doUnblock(device)" class="text-[11px] px-2 py-1 bg-slate-700 hover:bg-slate-600 text-emerald-300 rounded font-medium transition" title="Unblock IP">Unblock</button>
-                  <button v-else-if="device.ip_address" @click="doBlock(device)" class="text-[11px] px-2 py-1 bg-rose-900/50 hover:bg-rose-800 text-rose-300 rounded font-medium transition" title="Block IP + kick session">Block</button>
+                  <button v-else-if="device.ip_address || device.mac_address" @click="doBlock(device)" class="text-[11px] px-2 py-1 bg-rose-900/50 hover:bg-rose-800 text-rose-300 rounded font-medium transition" title="Block IP, MAC and bridge traffic">Block</button>
                   <button v-if="device.user && hasSession(device)" @click="doKick(device)" class="text-[11px] px-2 py-1 bg-amber-900/50 hover:bg-amber-800 text-amber-300 rounded font-medium transition" title="Disconnect session">Kick</button>
                 </div>
               </td>
@@ -214,7 +217,7 @@
             <button v-if="selected.is_blocked" @click="doUnblock(selected)" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-emerald-300 rounded-lg text-xs font-semibold transition">
               Unblock IP
             </button>
-            <button v-else-if="selected.ip_address" @click="doBlock(selected)" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold transition">
+            <button v-else-if="selected.ip_address || selected.mac_address" @click="doBlock(selected)" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold transition">
               Block Device
             </button>
             <button v-if="selected.user && hasSession(selected)" @click="doKick(selected)" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold transition">
@@ -235,6 +238,27 @@
           </div>
         </div>
 
+        <!-- Operator comment (written straight to the router) -->
+        <div class="mb-5 bg-slate-900/60 border border-slate-700/50 rounded-lg p-4">
+          <h4 class="text-xs uppercase font-bold tracking-wider text-indigo-400 mb-3">Comment</h4>
+          <div class="flex gap-2">
+            <input
+              v-model="commentForm.comment"
+              type="text"
+              maxlength="150"
+              placeholder="e.g. Living-room TV box"
+              class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-indigo-500 focus:border-indigo-500"
+              @keyup.enter="submitComment"
+            />
+            <button @click="submitComment" :disabled="commentSaving" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition whitespace-nowrap">
+              {{ commentSaving ? 'Saving…' : 'Save' }}
+            </button>
+          </div>
+          <p class="text-[11px] text-slate-500 mt-2">
+            Stored on the router as this device's DHCP lease comment (shown in the table above and on Winbox) and mirrored to the inventory when the device is managed. Leave empty and save to clear it.
+          </p>
+        </div>
+
         <!-- Merged summary -->
         <div class="mb-5 bg-slate-900/60 border border-slate-700/50 rounded-lg p-4">
           <h4 class="text-xs uppercase font-bold tracking-wider text-indigo-400 mb-3">Merged Summary</h4>
@@ -249,9 +273,9 @@
             <Detail label="IP Address" :value="selected.ip_address" />
             <Detail label="MAC Address" :value="selected.mac_address" />
             <Detail label="Hostname" :value="selected.hostname" />
+            <Detail label="Comment" :value="selected.comment" />
             <Detail label="Interface" :value="selected.interface" />
             <Detail label="User" :value="selected.user" />
-            <Detail label="Comment" :value="selected.comment" />
             <Detail label="Sources" :value="selected.sources.join(', ')" />
             <Detail label="Session Uptime" :value="selected.session_uptime" />
             <Detail label="Time Remaining" :value="selected.session_time_left" />
@@ -261,11 +285,14 @@
             <Detail label="DHCP Status" :value="selected.dhcp_status" />
             <Detail label="DHCP Expires" :value="selected.dhcp_expires" />
             <Detail label="DHCP Last Seen" :value="selected.dhcp_last_seen" />
+            <Detail label="Speed Cap (up/down)" :value="speedCapText(selected)" />
             <Detail label="Lease Rate Limit" :value="selected.dhcp_rate_limit" />
             <Detail label="DHCP Server" :value="selected.dhcp_server" />
             <Detail label="Class ID" :value="selected.class_id" />
             <Detail label="Bytes In" :value="formatBytes(selected.bytes_in)" />
             <Detail label="Bytes Out" :value="formatBytes(selected.bytes_out)" />
+            <Detail label="Real-time In" :value="rateLabel(selected, 'rate_in')" />
+            <Detail label="Real-time Out" :value="rateLabel(selected, 'rate_out')" />
             <Detail label="Packets In" :value="selected.packets_in" />
             <Detail label="Packets Out" :value="selected.packets_out" />
             <Detail label="Hotspot Authorized" :value="boolText(selected.host_authorized)" />
@@ -332,6 +359,10 @@
             </div>
             <input v-if="onboardForm.access_days === 'custom'" v-model.number="onboardForm.custom_days" type="number" min="1" max="3650" placeholder="Number of days" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white" />
             <p class="text-[11px] text-slate-500 mt-1">Access expires this many days from now (calendar-based).</p>
+            <div class="mt-3">
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Or Set Exact Expiry Date</label>
+              <ExpiryPresets v-model="onboardForm.access_expires_at" hint="An exact date overrides the duration above." />
+            </div>
           </div>
           <div>
             <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Comment <span class="normal-case font-normal text-slate-500">(optional)</span></label>
@@ -394,6 +425,14 @@
             <p v-if="renewDevice.access_expires_at" class="text-[11px] text-slate-500 mt-1">
               Currently expires {{ new Date(renewDevice.access_expires_at).toLocaleDateString() }}. Renewing restarts the clock from today.
             </p>
+            <div class="mt-3">
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Or Set Exact Expiry Date</label>
+              <ExpiryPresets
+                v-model="renewForm.access_expires_at"
+                :current-expiry="renewDevice.access_expires_at"
+                hint="An exact date overrides the duration above."
+              />
+            </div>
           </div>
           <div class="flex justify-end gap-3 pt-3 border-t border-slate-700/60">
             <button type="button" @click="renewDevice = null" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition">Cancel</button>
@@ -410,6 +449,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { router as inertiaRouter } from '@inertiajs/vue3';
 import AppLayout from '../../Layouts/AppLayout.vue';
 import Detail from '../../Components/Detail.vue';
+import ExpiryPresets from '../../Components/ExpiryPresets.vue';
 
 const props = defineProps({
   devices: Array,
@@ -427,18 +467,22 @@ const statusFilter = ref(props.filters?.status || '');
 const sourceFilter = ref(props.filters?.source || '');
 const typologyFilter = ref(props.filters?.typology || '');
 const managedFilter = ref(props.filters?.managed || '');
-const autoRefresh = ref(false);
+const autoRefresh = ref(true);
 const loading = ref(false);
 const selected = ref(null);
+const liveDevices = ref(props.devices || []);
 
 const onboardDevice = ref(null);
-const onboardForm = reactive({ type: 'cpe', client_id: '', comment: '', access_days: 30, custom_days: null });
+const onboardForm = reactive({ type: 'cpe', client_id: '', comment: '', access_days: 30, custom_days: null, access_expires_at: '' });
+
+const commentForm = reactive({ comment: '' });
+const commentSaving = ref(false);
 
 const speedDevice = ref(null);
 const speedForm = reactive({ upload: '', download: '' });
 
 const renewDevice = ref(null);
-const renewForm = reactive({ access_days: 30, custom_days: null });
+const renewForm = reactive({ access_days: 30, custom_days: null, access_expires_at: '' });
 
 const durationPresets = [15, 30, 60, 90];
 
@@ -450,7 +494,7 @@ let timer = null;
 const filtered = computed(() => {
   const term = search.value.trim().toLowerCase();
 
-  return props.devices.filter((device) => {
+  return liveDevices.value.filter((device) => {
     if (routerFilter.value && String(device.router_id) !== routerFilter.value) return false;
     if (statusFilter.value && device.status !== statusFilter.value) return false;
     if (sourceFilter.value && !device.sources.includes(sourceFilter.value)) return false;
@@ -469,26 +513,59 @@ const filtered = computed(() => {
 const hasSession = (device) =>
   device.sources.includes('hotspot') || device.sources.includes('pppoe');
 
-const refresh = () => {
-  loading.value = true;
-  inertiaRouter.reload({
-    only: ['devices', 'routerErrors', 'fetchedAt'],
-    preserveState: true,
+const openDevice = (device) => {
+  selected.value = device;
+  commentForm.comment = device.comment || '';
+};
+
+const submitComment = () => {
+  const device = selected.value;
+  if (!device || commentSaving.value) return;
+
+  commentSaving.value = true;
+  inertiaRouter.post('/connected-devices/comment', {
+    router_id: device.router_id,
+    mac_address: device.mac_address || null,
+    ip_address: device.ip_address || null,
+    comment: commentForm.comment.trim(),
+  }, {
     preserveScroll: true,
     onFinish: () => {
-      loading.value = false;
+      commentSaving.value = false;
+      refresh();
     },
   });
 };
 
+const refresh = () => {
+  loading.value = true;
+  fetch('/connected-devices/live?live=1', {
+    headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    credentials: 'same-origin',
+    cache: 'no-store',
+  })
+    .then((response) => {
+      if (!response.ok) throw new Error(`Live traffic request failed (${response.status})`);
+      return response.json();
+    })
+    .then((payload) => {
+      liveDevices.value = payload.devices || [];
+      loading.value = false;
+    })
+    .catch(() => {
+      loading.value = false;
+    });
+};
+
 watch(autoRefresh, (enabled) => {
+  clearInterval(timer);
   if (enabled) {
-    timer = setInterval(refresh, 10000);
+    refresh();
+    timer = setInterval(refresh, 5000);
   } else {
-    clearInterval(timer);
     timer = null;
   }
-});
+}, { immediate: true });
 
 onBeforeUnmount(() => clearInterval(timer));
 
@@ -501,6 +578,7 @@ const openOnboard = (device) => {
   onboardForm.comment = device.comment || '';
   onboardForm.access_days = 30;
   onboardForm.custom_days = null;
+  onboardForm.access_expires_at = '';
 };
 
 const resolvedDays = (form) => (form.access_days === 'custom' ? Number(form.custom_days) || 30 : form.access_days);
@@ -517,6 +595,9 @@ const submitOnboard = () => {
     comment: onboardForm.comment || null,
   };
   if (isCustomerEdge(onboardForm.type)) {
+    if (onboardForm.access_expires_at) {
+      payload.access_expires_at = onboardForm.access_expires_at;
+    }
     payload.access_duration_days = resolvedDays(onboardForm);
   }
   inertiaRouter.post('/connected-devices', payload, {
@@ -532,13 +613,16 @@ const openRenew = (device) => {
   renewDevice.value = device;
   renewForm.access_days = device.access_duration_days || 30;
   renewForm.custom_days = null;
+  renewForm.access_expires_at = '';
 };
 
 const submitRenew = () => {
   const device = renewDevice.value;
-  inertiaRouter.post(`/connected-devices/${device.managed_device_id}/renew`, {
-    access_duration_days: resolvedDays(renewForm),
-  }, {
+  const payload = { access_duration_days: resolvedDays(renewForm) };
+  if (renewForm.access_expires_at) {
+    payload.access_expires_at = renewForm.access_expires_at;
+  }
+  inertiaRouter.post(`/connected-devices/${device.managed_device_id}/renew`, payload, {
     preserveScroll: true,
     onFinish: () => {
       renewDevice.value = null;
@@ -548,10 +632,11 @@ const submitRenew = () => {
 };
 
 const doBlock = (device) => {
-  if (!confirm(`Block ${device.ip_address || device.mac_address}? This kicks any live session and isolates the IP.`)) return;
+  if (!confirm(`Block ${device.ip_address || device.mac_address}? This kicks any live session and cuts the device off (by IP and MAC).`)) return;
   inertiaRouter.post('/connected-devices/block', {
     router_id: device.router_id,
     ip_address: device.ip_address || null,
+    mac_address: device.mac_address || null,
     user: device.user || null,
     protocol: device.sources.includes('pppoe') ? 'pppoe' : 'hotspot',
   }, { preserveScroll: true, onFinish: () => refresh() });
@@ -560,7 +645,8 @@ const doBlock = (device) => {
 const doUnblock = (device) => {
   inertiaRouter.post('/connected-devices/unblock', {
     router_id: device.router_id,
-    ip_address: device.ip_address,
+    ip_address: device.ip_address || null,
+    mac_address: device.mac_address || null,
   }, { preserveScroll: true, onFinish: () => refresh() });
 };
 
@@ -652,6 +738,31 @@ const formatBytes = (bytes) => {
 };
 
 const boolText = (value) => (value === null || value === undefined ? null : value ? 'Yes' : 'No');
+
+// Bytes-per-second as KB/s, MB/s, GB/s (decimal-free for large values).
+const formatRate = (bytesPerSecond) => {
+  const value = Number(bytesPerSecond) || 0;
+  if (value < 1024) return `${Math.round(value)} B/s`;
+  const units = ['KB/s', 'MB/s', 'GB/s'];
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length);
+  const scaled = value / Math.pow(1024, index);
+  return `${scaled.toFixed(scaled < 10 ? 1 : 0)} ${units[index - 1]}`;
+};
+
+// Live rate text for one direction; explains why a device has no reading.
+const rateLabel = (device, field) => {
+  if (!device) return null;
+  if (device[field] !== null && device[field] !== undefined) return formatRate(device[field]);
+  return device.counter_available ? 'measuring…' : 'no counter';
+};
+
+// RouterOS reports "0/0" for an uncapped simple queue; a null cap means no queue matched this device.
+const speedCapText = (device) => {
+  if (!device) return null;
+  if (device.queue_max_limit === null || device.queue_max_limit === undefined) return 'No cap (no simple queue)';
+  if (device.queue_max_limit === '0/0') return 'Unlimited (0/0)';
+  return device.queue_max_limit;
+};
 
 const displayValue = (value) => {
   if (value === null || value === undefined || value === '') return '—';

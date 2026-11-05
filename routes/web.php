@@ -9,11 +9,14 @@ use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PlanController;
 use App\Http\Controllers\Portal\PortalAuthController;
 use App\Http\Controllers\Portal\PortalDashboardController;
+use App\Http\Controllers\Portal\PortalRenewalController;
 use App\Http\Controllers\Portal\PortalTicketController;
+use App\Http\Controllers\Portal\PortalWalletController;
 use App\Http\Controllers\RouterController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\TicketController;
+use App\Http\Controllers\TopologyController;
 use App\Http\Controllers\VoucherController;
 use App\Http\Controllers\WalletController;
 use Illuminate\Support\Facades\Route;
@@ -37,6 +40,7 @@ Route::middleware(['web'])->group(function () {
     // Plans
     Route::resource('plans', PlanController::class)->only(['index', 'store', 'destroy']);
     Route::put('plans/{plan}', [PlanController::class, 'update'])->name('plans.update');
+    Route::post('plans/{plan}/default', [PlanController::class, 'setDefault'])->name('plans.default');
 
     // Clients
     Route::resource('clients', ClientController::class)->only(['index', 'store', 'show']);
@@ -51,11 +55,13 @@ Route::middleware(['web'])->group(function () {
 
     // Live connected devices (ARP / DHCP / Hotspot / PPPoE merged) + management
     Route::get('connected-devices', [ConnectedDeviceController::class, 'index'])->name('connected-devices.index');
+    Route::get('connected-devices/live', [ConnectedDeviceController::class, 'live'])->name('connected-devices.live');
     Route::post('connected-devices', [ConnectedDeviceController::class, 'store'])->name('connected-devices.store');
     Route::post('connected-devices/block', [ConnectedDeviceController::class, 'block'])->name('connected-devices.block');
     Route::post('connected-devices/unblock', [ConnectedDeviceController::class, 'unblock'])->name('connected-devices.unblock');
     Route::post('connected-devices/kick', [ConnectedDeviceController::class, 'kick'])->name('connected-devices.kick');
     Route::post('connected-devices/queue', [ConnectedDeviceController::class, 'queue'])->name('connected-devices.queue');
+    Route::post('connected-devices/comment', [ConnectedDeviceController::class, 'comment'])->name('connected-devices.comment');
     Route::post('connected-devices/{device}/renew', [ConnectedDeviceController::class, 'renew'])->name('connected-devices.renew');
     Route::post('connected-devices/{device}/disable', [ConnectedDeviceController::class, 'disable'])->name('connected-devices.disable');
 
@@ -74,6 +80,10 @@ Route::middleware(['web'])->group(function () {
     Route::post('inventory', [DeviceController::class, 'store'])->name('inventory.store');
     Route::put('inventory/{device}', [DeviceController::class, 'update'])->name('inventory.update');
     Route::delete('inventory/{device}', [DeviceController::class, 'destroy'])->name('inventory.destroy');
+
+    // Whole-network topology diagram
+    Route::get('topology', [TopologyController::class, 'index'])->name('topology.index');
+    Route::get('topology/live', [TopologyController::class, 'live'])->name('topology.live');
 
     // Payments (Monetbil Mobile Money)
     Route::get('payments', [PaymentController::class, 'index'])->name('payments.index');
@@ -100,6 +110,7 @@ Route::middleware(['web'])->group(function () {
     Route::get('subscriptions', [SubscriptionController::class, 'index'])->name('subscriptions.index');
     Route::post('subscriptions', [SubscriptionController::class, 'store'])->name('subscriptions.store');
     Route::put('subscriptions/{subscription}', [SubscriptionController::class, 'update'])->name('subscriptions.update');
+    Route::put('subscriptions/{subscription}/expiry', [SubscriptionController::class, 'updateExpiry'])->name('subscriptions.expiry');
     Route::delete('subscriptions/{subscription}', [SubscriptionController::class, 'destroy'])->name('subscriptions.destroy');
     Route::post('routers/{router}/sessions/kick', [SubscriptionController::class, 'kickLiveSession'])->name('routers.sessions.kick');
     Route::post('subscriptions/{subscription}/disable', [SubscriptionController::class, 'disable'])->name('subscriptions.disable');
@@ -125,6 +136,24 @@ Route::middleware('guest:client')->group(function () {
 Route::middleware('auth:client')->group(function () {
     Route::get('/portal', [PortalDashboardController::class, 'index'])->name('portal.dashboard');
     Route::post('/portal/logout', [PortalAuthController::class, 'logout'])->name('portal.logout');
+
+    // Subscription renewal via Mobile Money (Monetbil) — the webhook
+    // activates the subscription on the router once payment confirms.
+    Route::post('/portal/subscriptions/{subscription}/renew', [PortalRenewalController::class, 'renew'])
+        ->name('portal.subscriptions.renew');
+
+    // Pay the next period straight from the wallet balance (also "pay in
+    // advance": early renewal stacks on the remaining days).
+    Route::post('/portal/subscriptions/{subscription}/renew-from-wallet', [PortalRenewalController::class, 'renewFromWallet'])
+        ->name('portal.subscriptions.renew-wallet');
+
+    // Arm/disarm automatic wallet renewal (hourly isp:renew-from-wallet).
+    Route::put('/portal/subscriptions/{subscription}/auto-renew', [PortalRenewalController::class, 'toggleAutoRenew'])
+        ->name('portal.subscriptions.auto-renew');
+
+    // Wallet top-up via Mobile Money.
+    Route::post('/portal/wallet/topup', [PortalWalletController::class, 'topup'])
+        ->name('portal.wallet.topup');
 
     // Subscriber support tickets
     Route::get('/portal/tickets', [PortalTicketController::class, 'index'])->name('portal.tickets');

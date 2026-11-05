@@ -21,7 +21,7 @@ echo "  Target Host : {$ip}:{$port}\n";
 echo "  Username    : {$username}\n";
 echo "=================================================================\n\n";
 
-$protocol = new RouterOsProtocol(timeout: 5);
+$protocol = new RouterOsProtocol(timeout: 15);
 $passed = 0;
 $failed = 0;
 
@@ -95,7 +95,7 @@ $testHotspotPass = 'Pass987!';
 
 try {
     // 4.1 Profiles
-    $hsProfiles = $protocol->command('/ip/hotspot/profile/print');
+    $hsProfiles = $protocol->command('/ip/hotspot/user/profile/print');
     $profileName = $hsProfiles[0]['name'] ?? 'default';
     report("Hotspot Profiles Query", true, "Found " . count($hsProfiles) . " profile(s), using '{$profileName}'");
 

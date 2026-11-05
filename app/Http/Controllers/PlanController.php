@@ -60,9 +60,27 @@ class PlanController extends Controller
             'is_active' => 'boolean',
         ]);
 
+        if ($plan->is_default && (int) ($validated['validity_days'] ?? 0) !== Plan::DEFAULT_VALIDITY_DAYS) {
+            return back()->withInput()->with('error', 'The default plan must stay at ' . Plan::DEFAULT_VALIDITY_DAYS . ' calendar days.');
+        }
+
         $plan->update($validated);
 
         return back()->with('success', "Plan '{$plan->name}' updated successfully.");
+    }
+
+    /**
+     * Make this plan the default for new subscribers (one default at a time).
+     */
+    public function setDefault(Plan $plan): RedirectResponse
+    {
+        try {
+            $plan->makeDefault();
+        } catch (\InvalidArgumentException $exception) {
+            return back()->with('error', $exception->getMessage());
+        }
+
+        return back()->with('success', "'{$plan->name}' is now the default plan for new subscribers.");
     }
 
     public function destroy(Plan $plan): RedirectResponse

@@ -20,9 +20,46 @@ class RouterOsProtocol
     }
 
     /**
+     * Change the socket timeout for subsequent reads/connects.
+     */
+    public function setTimeout(int $timeout): void
+    {
+        $this->timeout = max(1, $timeout);
+
+        if ($this->socket) {
+            @stream_set_timeout($this->socket, $this->timeout);
+        }
+    }
+
+    /**
      * Connect and authenticate to MikroTik Router.
+     *
+     * RouterOS delays login replies from a source IP after failed attempts
+     * (anti-bruteforce backoff). A silent first attempt is retried once
+     * after a short pause before giving up.
      */
     public function connect(string $ip, string $username, string $password, int $port = 8728, bool $useSsl = false): bool
+    {
+        try {
+            return $this->attemptLogin($ip, $username, $password, $port, $useSsl);
+        } catch (Exception $exception) {
+            if (!str_starts_with($exception->getMessage(), 'Failed to authenticate')) {
+                throw $exception;
+            }
+
+            // Silent timeout — the API port is open but RouterOS is holding
+            // the reply back. Wait briefly and retry once.
+            sleep(3);
+            $this->disconnect();
+
+            return $this->attemptLogin($ip, $username, $password, $port, $useSsl);
+        }
+    }
+
+    /**
+     * Single login attempt: open the socket and perform the /login handshake.
+     */
+    protected function attemptLogin(string $ip, string $username, string $password, int $port, bool $useSsl): bool
     {
         $address = ($useSsl ? 'ssl://' : 'tcp://') . $ip . ':' . $port;
 
@@ -81,7 +118,7 @@ class RouterOsProtocol
             throw new Exception("RouterOS Auth Error: {$message}");
         }
 
-        throw new Exception("Failed to authenticate with RouterOS device at {$ip}");
+        throw new Exception("Failed to authenticate with RouterOS device at {$ip} (no reply — RouterOS may be delaying logins from this IP after recent failed attempts; wait a few minutes before retrying)");
     }
 
     /**
@@ -181,6 +218,45 @@ class RouterOsProtocol
     }
 
     /**
+     * Send '/file/get' and return the concatenated file body.
+     *
+     * RouterOS streams a file as many '=contents=' words (one per chunk) plus
+     * a trailing '=contents=' with an offset, so the generic command() parser
+     * (which keeps only the last value per key) cannot be used. Returns null
+     * when the file does not exist.
+     */
+    public function getFileContents(string $name): ?string
+    {
+        $this->write('/file/get', ['=.id=' . $name]);
+
+        $body = '';
+        while (true) {
+            $word = $this->readWord();
+
+            if ($word === '') {
+                continue;
+            }
+
+            if ($word === '!done') {
+                break;
+            }
+
+            if ($word === '!trap' || $word === '!fatal') {
+                throw new Exception("RouterOS Trap: unable to read file {$name}");
+            }
+
+            if (str_starts_with($word, '=')) {
+                $parts = explode('=', substr($word, 1), 2);
+                if ($parts[0] === 'contents') {
+                    $body .= $parts[1] ?? '';
+                }
+            }
+        }
+
+        return $body;
+    }
+
+    /**
      * Write single word with RouterOS length prefix encoding.
      */
     protected function writeWord(string $word): void
@@ -212,7 +288,7 @@ class RouterOsProtocol
     {
         $byte = fread($this->socket, 1);
         if ($byte === '' || $byte === false) {
-            return '!fatal';
+            $this->failRead('the start of a word');
         }
 
         $b = ord($byte);
@@ -248,12 +324,37 @@ class RouterOsProtocol
         while (strlen($received) < $len) {
             $chunk = fread($this->socket, $len - strlen($received));
             if ($chunk === false || $chunk === '') {
-                break;
+                $this->failRead("the body of a word ({$len} bytes, received " . strlen($received) . ')');
             }
             $received .= $chunk;
         }
 
         return $received;
+    }
+
+    /**
+     * Abort a read that cannot be completed safely.
+     *
+     * A partial sentence must never be returned to the caller: the unread bytes
+     * stay in the socket buffer and would be consumed as the reply to whatever
+     * command is sent next, silently returning another command's data. Dropping
+     * the connection is the only way to stay in sync with RouterOS.
+     */
+    protected function failRead(string $expecting): void
+    {
+        $meta = @stream_get_meta_data($this->socket);
+        $timedOut = !empty($meta['timed_out']);
+
+        $this->disconnect();
+
+        if ($timedOut) {
+            throw new Exception(
+                "RouterOS API read timed out after {$this->timeout}s waiting for {$expecting} — " .
+                'the router is not answering in time; connection was dropped so a stale reply cannot be mistaken for this command\'s result'
+            );
+        }
+
+        throw new Exception("RouterOS API connection closed by the router while waiting for {$expecting}");
     }
 
     /**

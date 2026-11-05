@@ -27,3 +27,8 @@ Schedule::command('isp:renew-from-wallet')
     ->withoutOverlapping()
     ->runInBackground();
 
+Schedule::command('isp:remind-expiring')
+    ->hourly()
+    ->withoutOverlapping()
+    ->runInBackground();
+

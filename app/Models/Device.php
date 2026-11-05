@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\CalendarWindow;
 use App\Services\Mikrotik\MacAuthManager;
 use App\Services\Mikrotik\MikrotikService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -103,16 +104,45 @@ class Device extends Model
     }
 
     /**
-     * Re-grant access and restart the calendar access period from today.
-     * Pass $days to override the stored access_duration_days for this renewal.
+     * Resolve the access duration + expiry datetime from form input.
+     * An absolute expires_at always wins over a day duration; when neither
+     * is given, customer-edge devices default to 30 days and infrastructure
+     * devices never expire.
+     *
+     * @return array{0: ?int, 1: ?Carbon} [access_duration_days, access_expires_at]
      */
-    public function renewLanAccess(?int $days = null): array
+    public static function resolveAccessExpiry(?int $days, ?string $expiresAt, bool $isCustomerEdge): array
+    {
+        if (!empty($expiresAt)) {
+            $expires = Carbon::parse($expiresAt);
+
+            return [$days, $expires];
+        }
+
+        if ($days !== null && $days > 0) {
+            return [$days, CalendarWindow::endOf($days)];
+        }
+
+        if ($isCustomerEdge) {
+            return [30, CalendarWindow::endOf(30)];
+        }
+
+        return [null, null];
+    }
+
+    /**
+     * Re-grant access and restart the calendar access period from today.
+     * Pass $days to override the stored access_duration_days, or $expiresAt
+     * to set an absolute expiry datetime (which wins over $days).
+     */
+    public function renewLanAccess(?int $days = null, ?Carbon $expiresAt = null): array
     {
         if ($days !== null && $days > 0) {
             $this->access_duration_days = $days;
         }
 
-        $this->access_expires_at = Carbon::now()->addDays((int) $this->access_duration_days);
+        $this->access_expires_at = $expiresAt
+            ?? CalendarWindow::endOf((int) ($this->access_duration_days ?: 30));
         $this->save();
 
         $actions = $this->runMacAuth(fn (MacAuthManager $macAuth) => $macAuth->activate($this), 'device_mac_auth_enable');

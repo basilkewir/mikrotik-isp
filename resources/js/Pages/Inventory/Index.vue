@@ -69,6 +69,7 @@
                 <th class="px-5 py-3">IP Address</th>
                 <th class="px-5 py-3">Router</th>
                 <th class="px-5 py-3">Client</th>
+                <th class="px-5 py-3">Access Expires</th>
                 <th class="px-5 py-3">Parent</th>
                 <th class="px-5 py-3">Seen</th>
                 <th class="px-5 py-3 text-right">Actions</th>
@@ -94,6 +95,18 @@
                   </template>
                   <span v-else class="text-slate-600">—</span>
                 </td>
+                <td class="px-5 py-3 text-xs">
+                  <template v-if="isCustomerEdgeType(device.type)">
+                    <span v-if="device.access_expires_at" class="font-mono" :class="isExpired(device.access_expires_at) ? 'text-rose-400' : 'text-slate-300'">
+                      {{ new Date(device.access_expires_at).toLocaleDateString() }}
+                    </span>
+                    <span v-else class="text-slate-500">no limit</span>
+                    <span v-if="!device.is_active" class="block text-[10px] font-semibold uppercase text-rose-400">disabled</span>
+                    <span v-else-if="isExpired(device.access_expires_at)" class="block text-[10px] font-semibold uppercase text-rose-400">expired</span>
+                    <span v-else-if="device.access_expires_at" class="block text-[10px] font-semibold uppercase text-emerald-400">active</span>
+                  </template>
+                  <span v-else class="text-slate-600">—</span>
+                </td>
                 <td class="px-5 py-3 text-slate-400 text-xs">
                   {{ device.parent ? (device.parent.hostname || device.parent.mac_address) : '—' }}
                 </td>
@@ -104,12 +117,22 @@
                   </span>
                 </td>
                 <td class="px-5 py-3 text-right whitespace-nowrap">
+                  <button
+                    v-if="isCustomerEdgeType(device.type) && !deviceAccessActive(device)"
+                    @click="activate(device)"
+                    class="text-xs px-2.5 py-1 mr-1 bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 rounded font-medium transition"
+                  >Activate</button>
+                  <button
+                    v-else-if="isCustomerEdgeType(device.type) && deviceAccessActive(device)"
+                    @click="deactivate(device)"
+                    class="text-xs px-2.5 py-1 mr-1 bg-rose-900/60 hover:bg-rose-800 text-rose-300 rounded font-medium transition"
+                  >Disable</button>
                   <button @click="openEdit(device)" class="text-xs px-2.5 py-1 mr-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded font-medium transition">Edit</button>
                   <button @click="destroy(device)" class="text-xs px-2.5 py-1 bg-rose-900/60 hover:bg-rose-800 text-rose-300 rounded font-medium transition">Delete</button>
                 </td>
               </tr>
               <tr v-if="!devices.data.length">
-                <td colspan="9" class="px-5 py-10 text-center text-slate-500 text-sm">No devices match the current filters.</td>
+                <td colspan="10" class="px-5 py-10 text-center text-slate-500 text-sm">No devices match the current filters.</td>
               </tr>
             </tbody>
           </table>
@@ -215,6 +238,20 @@
               <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Management IP</label>
               <input v-model="form.management_ip" type="text" placeholder="10.0.0.5" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono" />
             </div>
+            <div v-if="isCustomerEdgeType(form.type)" class="md:col-span-2 border-t border-slate-700/60 pt-3 space-y-3">
+              <div>
+                <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Access Expiry Date</label>
+                <ExpiryPresets
+                  v-model="form.access_expires_at"
+                  :current-expiry="editing?.access_expires_at"
+                  hint="Exact date wins over the duration below. Leave both empty for the 30-day default."
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Access Duration (Calendar Days)</label>
+                <input v-model.number="form.access_duration_days" type="number" min="1" max="3650" placeholder="e.g. 30" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono" />
+              </div>
+            </div>
           </div>
 
           <div>
@@ -239,6 +276,7 @@ import { computed, reactive, ref } from 'vue';
 import { router as inertiaRouter } from '@inertiajs/vue3';
 import AppLayout from '../../Layouts/AppLayout.vue';
 import TopologyNode from '../../Components/TopologyNode.vue';
+import ExpiryPresets from '../../Components/ExpiryPresets.vue';
 
 const props = defineProps({
   devices: Object,
@@ -269,6 +307,26 @@ const INFRA_TYPES = ['access_point', 'router', 'switch', 'sector', 'backhaul'];
 const customerTypes = computed(() => Object.fromEntries(Object.entries(props.typeOptions).filter(([v]) => CUSTOMER_TYPES.includes(v))));
 const infraTypes = computed(() => Object.fromEntries(Object.entries(props.typeOptions).filter(([v]) => INFRA_TYPES.includes(v))));
 
+const isCustomerEdgeType = (type) => CUSTOMER_TYPES.includes(type);
+const isExpired = (iso) => iso && new Date(iso) <= new Date();
+const deviceAccessActive = (device) => device.is_active && !isExpired(device.access_expires_at);
+
+const toLocalInput = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const activate = (device) => {
+  inertiaRouter.post(`/devices/${device.id}/enable`, {}, { preserveScroll: true });
+};
+
+const deactivate = (device) => {
+  if (!confirm(`Disable LAN access for ${device.hostname || device.mac_address}? The L2 gate will be engaged immediately.`)) return;
+  inertiaRouter.post(`/devices/${device.id}/disable`, {}, { preserveScroll: true });
+};
+
 const emptyForm = () => ({
   type: 'cpe',
   mac_address: '',
@@ -284,6 +342,8 @@ const emptyForm = () => ({
   interface: '',
   management_ip: '',
   notes: '',
+  access_duration_days: null,
+  access_expires_at: '',
 });
 
 const form = ref(emptyForm());
@@ -335,6 +395,8 @@ const openEdit = (device) => {
     interface: device.interface || '',
     management_ip: device.management_ip || '',
     notes: device.notes || '',
+    access_duration_days: device.access_duration_days || null,
+    access_expires_at: toLocalInput(device.access_expires_at),
   };
   showModal.value = true;
 };

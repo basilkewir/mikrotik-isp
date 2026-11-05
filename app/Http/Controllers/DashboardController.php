@@ -33,6 +33,13 @@ class DashboardController extends Controller
                     'hotspot_users_count' => count(array_filter($users, fn (array $user) => $user['auth_type'] === 'hotspot')),
                     'pppoe_users_count' => count(array_filter($users, fn (array $user) => $user['auth_type'] === 'pppoe')),
                 ];
+
+                if ($snapshot['stale'] ?? false) {
+                    $routerErrors[] = [
+                        'router_name' => $router->name,
+                        'message' => $snapshot['router']['connection_error'] ?? 'Router unreachable — showing last known data.',
+                    ];
+                }
             } catch (Exception $exception) {
                 $routers[] = [
                     ...$router->fresh()->only([

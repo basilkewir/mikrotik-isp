@@ -4,9 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Client;
 use App\Models\Payment;
-use App\Models\WalletTransaction;
-use App\Services\Billing\WalletService;
+use App\Models\Setting;
 use App\Services\Payments\MonetbilGateway;
+use App\Services\Payments\PaymentSettlementService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -77,6 +77,27 @@ class PaymentController extends Controller
      */
     public function returnTo(Request $request, Payment $payment): RedirectResponse
     {
+        // Captive-portal signup: the customer has no self-care session —
+        // send them straight back to the hotspot login page so they can
+        // connect (setting hotspot.portal_base_url, e.g. http://10.5.50.1).
+        if ($payment->subscription_id && !auth('client')->check()) {
+            $subscription = $payment->subscription;
+            $portalBase = (string) Setting::getValue('hotspot.portal_base_url', '');
+
+            if ($subscription && $subscription->auth_type === 'hotspot' && $portalBase !== '') {
+                return redirect()->away(
+                    rtrim($portalBase, '/') . '/login.html?paid=1&user=' . urlencode($subscription->username)
+                );
+            }
+        }
+
+        // Renewals belong to the self-care portal — the client is logged in
+        // there, not as an admin.
+        if ($payment->subscription_id || auth('client')->check()) {
+            return redirect()->route('portal.dashboard')
+                ->with('info', "Payment {$payment->payment_ref} started — your service is re-enabled automatically once Mobile Money confirms it.");
+        }
+
         return redirect()->route('clients.show', $payment->client_id)
             ->with('info', "Payment {$payment->payment_ref} initiated — the wallet will be credited once Monetbil confirms the transaction.");
     }
@@ -88,7 +109,7 @@ class PaymentController extends Controller
      * against Monetbil's checkPayment API before any money is credited.
      * Idempotent: a payment_ref is only ever credited once.
      */
-    public function notify(Request $request, WalletService $wallet)
+    public function notify(Request $request, PaymentSettlementService $settlement)
     {
         // Monetbil may deliver via GET or POST.
         $payload = array_merge($request->query(), $request->post());
@@ -110,53 +131,57 @@ class PaymentController extends Controller
             return response('received');
         }
 
-        // Idempotency: already settled — acknowledge and stop.
+        $subscription = $payment->subscription_id ? $payment->subscription : null;
+
+        // Idempotency: a settled payment is only re-processed when a renewal
+        // still needs to reach the router (the webhook can arrive while the
+        // router is down; Monetbil then retries).
         if ($payment->status !== Payment::STATUS_PENDING) {
-            return response('received');
-        }
+            $activationPending = $subscription
+                && $payment->status === Payment::STATUS_SUCCESS
+                && ($subscription->status !== 'active' || $subscription->isExpired());
 
-        // Trust nothing from the webhook body: ask Monetbil directly.
-        try {
-            $status = $this->gateway->checkTransactionStatus($transactionId);
-        } catch (\RuntimeException $exception) {
-            Log::error("Monetbil notify: status check failed for {$paymentRef}: " . $exception->getMessage());
+            if (!$activationPending) {
+                return response('received');
+            }
+        } else {
+            // Trust nothing from the webhook body: ask Monetbil directly.
+            try {
+                $status = $this->gateway->checkTransactionStatus($transactionId);
+            } catch (\RuntimeException $exception) {
+                Log::error("Monetbil notify: status check failed for {$paymentRef}: " . $exception->getMessage());
 
-            // 500 so Monetbil retries the notification later.
-            return response('Status check failed', 500);
-        }
+                // 500 so Monetbil retries the notification later.
+                return response('Status check failed', 500);
+            }
 
-        $payment->update([
-            'operator_transaction_id' => $transactionId,
-            'raw_payload' => array_merge($payment->raw_payload ?? [], ['webhook' => $payload]),
-        ]);
+            $payment->update([
+                'operator_transaction_id' => $transactionId,
+                'raw_payload' => array_merge($payment->raw_payload ?? [], ['webhook' => $payload]),
+            ]);
 
-        if (MonetbilGateway::isSuccessStatus($status)) {
+            if (!MonetbilGateway::isSuccessStatus($status)) {
+                $mapped = $status === -1 ? Payment::STATUS_CANCELLED : Payment::STATUS_FAILED;
+                $payment->update(['status' => $mapped]);
+
+                Log::info("Monetbil notify: payment {$paymentRef} ended as {$mapped} (status {$status}).");
+
+                return response('received');
+            }
+
             $payment->update([
                 'status' => Payment::STATUS_SUCCESS,
                 'paid_at' => now(),
                 'phone' => $payment->phone ?? ($payload['phone'] ?? $payload['msisdn'] ?? null),
                 'operator' => $payment->operator ?? ($payload['mobile_operator_name'] ?? null),
             ]);
-
-            $invoiceId = $payment->invoice_id;
-
-            $wallet->credit(
-                $payment->client,
-                (float) $payment->amount,
-                $invoiceId ? WalletTransaction::TYPE_INVOICE_PAYMENT : WalletTransaction::TYPE_TOPUP,
-                $invoiceId
-                    ? "Invoice #{$invoiceId} paid via Mobile Money ({$payment->payment_ref})"
-                    : "Mobile Money top-up {$payment->payment_ref}",
-                $payment
-            );
-
-            Log::info("Monetbil notify: payment {$paymentRef} settled, wallet credited {$payment->amount} XAF.");
-        } else {
-            $mapped = $status === -1 ? Payment::STATUS_CANCELLED : Payment::STATUS_FAILED;
-            $payment->update(['status' => $mapped]);
-
-            Log::info("Monetbil notify: payment {$paymentRef} ended as {$mapped} (status {$status}).");
         }
+
+        // Gateway-specific verification ends here; settlement itself is
+        // gateway-agnostic (PaymentSettlementService): subscription payments
+        // renew + reactivate on the router, wallet payments credit the ledger
+        // and cascade into armed auto-renewals.
+        $settlement->settle($payment);
 
         return response('received');
     }

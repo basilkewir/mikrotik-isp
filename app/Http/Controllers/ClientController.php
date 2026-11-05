@@ -7,6 +7,7 @@ use App\Models\Client;
 use App\Models\Device;
 use App\Models\Plan;
 use App\Models\Router;
+use App\Support\CalendarWindow;
 use Exception;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -84,7 +85,7 @@ class ClientController extends Controller
         ]);
 
         $routers = Router::where('is_online', true)->get(['id', 'name', 'ip_address']);
-        $plans = Plan::where('is_active', true)->get(['id', 'name', 'price', 'type', 'service_type', 'validity_days', 'data_limit_mb']);
+        $plans = Plan::where('is_active', true)->get(['id', 'name', 'price', 'type', 'service_type', 'validity_days', 'data_limit_mb', 'is_default']);
 
         $customerEdge = array_filter(DeviceType::cases(), fn (DeviceType $t) => $t->isCustomerEdge());
 
@@ -195,15 +196,23 @@ class ClientController extends Controller
             'model' => 'nullable|string|max:100',
             'manufacturer' => 'nullable|string|max:80',
             'notes' => 'nullable|string',
-            'access_duration_days' => 'required|integer|min:1|max:3650',
+            'access_duration_days' => 'nullable|integer|min:1|max:3650|required_without:access_expires_at',
+            'access_expires_at' => 'nullable|date',
         ]);
+
+        [$duration, $expiresAt] = Device::resolveAccessExpiry(
+            !empty($validated['access_duration_days']) ? (int) $validated['access_duration_days'] : null,
+            $validated['access_expires_at'] ?? null,
+            true,
+        );
 
         $device = $client->devices()->create([
             ...$validated,
             'mac_address' => strtoupper($validated['mac_address']),
             'type' => $validated['type'] ?? DeviceType::Cpe->value,
             'is_active' => true,
-            'access_expires_at' => Carbon::now()->addDays((int) $validated['access_duration_days']),
+            'access_duration_days' => $duration,
+            'access_expires_at' => $expiresAt,
             'comment' => 'Managed LAN access for ' . $client->name,
         ]);
 
@@ -223,18 +232,28 @@ class ClientController extends Controller
         $validated = $request->validate([
             'hostname' => 'nullable|string|max:100',
             'ip_address' => 'nullable|ip',
-            'access_duration_days' => 'required|integer|min:1|max:3650',
+            'access_duration_days' => 'nullable|integer|min:1|max:3650',
+            'access_expires_at' => 'nullable|date',
             'renew' => 'boolean',
         ]);
 
         $data = [
             'hostname' => $validated['hostname'] ?? null,
             'ip_address' => $validated['ip_address'] ?? null,
-            'access_duration_days' => (int) $validated['access_duration_days'],
         ];
 
-        if (!empty($validated['renew'])) {
-            $data['access_expires_at'] = Carbon::now()->addDays((int) $validated['access_duration_days']);
+        $hasAbsolute = !empty($validated['access_expires_at']);
+        $hasDuration = !empty($validated['access_duration_days']);
+
+        if ($hasDuration) {
+            $data['access_duration_days'] = (int) $validated['access_duration_days'];
+        }
+
+        if ($hasAbsolute) {
+            // An explicit expiry date always wins and implies re-granting access.
+            $data['access_expires_at'] = Carbon::parse($validated['access_expires_at']);
+        } elseif ($hasDuration && !empty($validated['renew'])) {
+            $data['access_expires_at'] = CalendarWindow::endOf((int) $validated['access_duration_days']);
         }
 
         $oldIp = $device->ip_address;
@@ -260,7 +279,11 @@ class ClientController extends Controller
             }
         }
 
-        return back()->with('success', "LAN device {$device->mac_address} updated" . (!empty($validated['renew']) ? " and access reset to {$device->access_expires_at->toDateTimeString()}." : '.'));
+        $suffix = $device->wasChanged('access_expires_at') && $device->access_expires_at
+            ? " Access valid until {$device->access_expires_at->toDateTimeString()}."
+            : '.';
+
+        return back()->with('success', "LAN device {$device->mac_address} updated" . $suffix);
     }
 
     public function destroyDevice(Device $device): RedirectResponse

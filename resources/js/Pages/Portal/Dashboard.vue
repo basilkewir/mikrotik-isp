@@ -17,6 +17,61 @@
     </header>
 
     <main class="max-w-4xl mx-auto px-4 py-6 space-y-6">
+      <!-- Flash messages -->
+      <div
+        v-if="flashMessage"
+        class="rounded-xl border p-4 text-sm"
+        :class="flashClass"
+      >
+        {{ flashMessage }}
+      </div>
+
+      <!-- Renewal banner: the first thing a finished subscription must see. -->
+      <section
+        v-if="renewables.length"
+        class="rounded-xl border border-amber-800/60 bg-amber-950/40 p-5 space-y-3"
+      >
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 class="font-extrabold text-amber-200">Service {{ renewalsArePast ? 'expired' : 'expiring soon' }} — pay to stay online</h2>
+            <p class="text-xs text-amber-200/80 mt-1">
+              Paying with Mobile Money reactivates your internet immediately — no need to call anyone.
+            </p>
+          </div>
+        </div>
+
+        <div
+          v-for="sub in renewables"
+          :key="sub.id"
+          class="bg-slate-900/70 border border-slate-800 rounded-lg p-4 flex flex-wrap items-center gap-4 justify-between"
+        >
+          <div class="min-w-[200px]">
+            <p class="text-sm font-bold text-white">{{ sub.plan?.name }}</p>
+            <p class="text-xs font-mono text-slate-400">{{ sub.username }}</p>
+            <p class="text-xs text-amber-300 mt-0.5">
+              {{ sub.expires_at ? (renewalsArePast || isExpired(sub) ? `Expired ${formatDate(sub.expires_at)}` : `Expires ${formatDate(sub.expires_at)}`) : 'No expiry date' }}
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <input
+              v-model="renewPhone[sub.id]"
+              type="tel"
+              placeholder="Phone (e.g. 6XXXXXXXX)"
+              class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white w-44"
+            />
+            <button
+              v-if="Number(sub.plan?.price) > 0"
+              @click="renew(sub)"
+              :disabled="paying === sub.id"
+              class="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 rounded-lg text-xs font-extrabold uppercase tracking-wide transition"
+            >
+              {{ paying === sub.id ? 'Opening…' : `Pay ${formatXaf(sub.plan?.price)}` }}
+            </button>
+            <span v-else class="text-xs text-amber-300/80 font-semibold">Contact support to renew</span>
+          </div>
+        </div>
+      </section>
+
       <!-- Balance + status -->
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
@@ -42,6 +97,7 @@
               <th class="px-5 py-2">Username</th>
               <th class="px-5 py-2">Status</th>
               <th class="px-5 py-2">Expires</th>
+              <th class="px-5 py-2">Renew</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-800/60">
@@ -52,9 +108,21 @@
                 <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase" :class="sub.status === 'active' ? 'bg-emerald-950 text-emerald-400' : 'bg-rose-950 text-rose-400'">{{ sub.status }}</span>
               </td>
               <td class="px-5 py-3 text-xs font-mono text-slate-400">{{ sub.expires_at ? new Date(sub.expires_at).toLocaleDateString() : '—' }}</td>
+              <td class="px-5 py-3">
+                <button
+                  v-if="needsRenewal(sub) && Number(sub.plan?.price) > 0"
+                  @click="renew(sub)"
+                  :disabled="paying === sub.id"
+                  class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 rounded-lg text-[11px] font-extrabold uppercase transition"
+                >
+                  {{ paying === sub.id ? 'Opening…' : `Pay ${formatXaf(sub.plan?.price)}` }}
+                </button>
+                <span v-else-if="needsRenewal(sub)" class="text-[11px] text-amber-300/80 font-semibold">Contact support</span>
+                <span v-else class="text-slate-600 text-xs">—</span>
+              </td>
             </tr>
             <tr v-if="!client.subscriptions?.length">
-              <td colspan="4" class="px-5 py-6 text-center text-slate-500 text-xs">No active services.</td>
+              <td colspan="5" class="px-5 py-6 text-center text-slate-500 text-xs">No active services.</td>
             </tr>
           </tbody>
         </table>
@@ -124,15 +192,56 @@
 </template>
 
 <script setup>
+import { computed, ref } from 'vue';
 import { Link, router } from '@inertiajs/vue3';
 
 const props = defineProps({
   client: Object,
+  flash: { type: Object, default: () => ({}) },
 });
 
 const formatXaf = (value) => {
   const n = Number(value) || 0;
   return `${n.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} XAF`;
+};
+
+const flashMessage = computed(
+  () => props.flash?.error || props.flash?.info || props.flash?.success || props.flash?.warning || '',
+);
+const flashClass = computed(() => {
+  if (props.flash?.error) return 'bg-rose-950/60 border-rose-800 text-rose-200';
+  if (props.flash?.info) return 'bg-sky-950/60 border-sky-800 text-sky-200';
+  if (props.flash?.success) return 'bg-emerald-950/60 border-emerald-800 text-emerald-200';
+  return 'bg-amber-950/60 border-amber-800 text-amber-200';
+});
+
+const RENEW_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+
+const isExpired = (sub) => Boolean(sub.expires_at && new Date(sub.expires_at).getTime() <= Date.now());
+
+/** Expired, or still active but inside the 3-day renewal window. */
+const needsRenewal = (sub) => {
+  if (sub.status === 'expired') return true;
+  if (sub.status !== 'active' || !sub.expires_at) return false;
+  return new Date(sub.expires_at).getTime() - Date.now() <= RENEW_WINDOW_MS;
+};
+
+const renewables = computed(() => (props.client.subscriptions || []).filter(needsRenewal));
+const renewalsArePast = computed(() => renewables.value.some(isExpired));
+
+const renewPhone = ref({});
+const paying = ref(null);
+
+const renew = (sub) => {
+  paying.value = sub.id;
+  router.post(
+    `/portal/subscriptions/${sub.id}/renew`,
+    { phone: renewPhone.value[sub.id] || null },
+    {
+      onFinish: () => { paying.value = null; },
+      onError: () => { paying.value = null; },
+    },
+  );
 };
 
 const logout = () => {

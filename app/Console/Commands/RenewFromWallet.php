@@ -4,8 +4,7 @@ namespace App\Console\Commands;
 
 use App\Exceptions\InsufficientBalanceException;
 use App\Models\Subscription;
-use App\Models\WalletTransaction;
-use App\Services\Billing\WalletService;
+use App\Services\Billing\SubscriptionRenewalService;
 use Exception;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -15,10 +14,10 @@ class RenewFromWallet extends Command
     protected $signature = 'isp:renew-from-wallet';
     protected $description = 'Auto-renew expired subscriptions from the client wallet when auto_renew is enabled';
 
-    public function handle(WalletService $wallet): int
+    public function handle(SubscriptionRenewalService $renewals): int
     {
         $candidates = Subscription::query()
-            ->where('status', 'active')
+            ->whereIn('status', ['active', 'expired'])
             ->where('auto_renew', true)
             ->whereNotNull('expires_at')
             ->where('expires_at', '<=', now())
@@ -38,34 +37,11 @@ class RenewFromWallet extends Command
         $failed = 0;
 
         foreach ($candidates as $subscription) {
-            $plan = $subscription->plan;
-            $client = $subscription->client;
-
-            if (!$plan || !$client || !$plan->validity_days) {
-                $skipped++;
-                continue;
-            }
-
             try {
-                $transaction = $wallet->debit(
-                    $client,
-                    (float) $plan->price,
-                    WalletTransaction::TYPE_SUBSCRIPTION_CHARGE,
-                    "Auto-renew subscription {$subscription->username} ({$plan->name})",
-                    $subscription
-                );
-
-                $base = $subscription->expires_at->isFuture() ? $subscription->expires_at : now();
-                $subscription->update([
-                    'expires_at' => $base->copy()->addDays((int) $plan->validity_days),
-                    'status' => 'active',
-                ]);
-
-                try {
-                    $subscription->provisionOnRouter();
-                } catch (Exception $exception) {
-                    Log::warning("Subscription {$subscription->id} renewed in DB but router re-provision failed: " . $exception->getMessage());
-                }
+                // requireExpired=true: the service rechecks under a row lock
+                // that the window is still lapsed BEFORE charging, so a
+                // webhook that renewed the same sub is never double-charged.
+                $transaction = $renewals->renewFromWallet($subscription, requireExpired: true);
 
                 $this->info(sprintf(
                     '✓ %s renewed until %s (%.2f XAF, balance %.2f).',
@@ -82,6 +58,10 @@ class RenewFromWallet extends Command
                     $exception->requested,
                     $exception->balance
                 ));
+                $skipped++;
+            } catch (\RuntimeException $exception) {
+                // Not renewable / already renewed elsewhere — informational.
+                $this->warn("⏭ {$subscription->username} skipped: " . $exception->getMessage());
                 $skipped++;
             } catch (Exception $exception) {
                 $this->error("✗ {$subscription->username} failed: " . $exception->getMessage());

@@ -32,7 +32,7 @@ class SubscriptionController extends Controller
 
         foreach ($routers as $router) {
             try {
-                $users = [...$users, ...$routerData->snapshot($router)['users']];
+                $users = [...$users, ...$routerData->snapshot($router, $request->boolean('live'))['users']];
             } catch (Exception $exception) {
                 $routerErrors[] = [
                     'router_name' => $router->name,
@@ -86,23 +86,31 @@ class SubscriptionController extends Controller
     {
         $validated = $request->validate([
             'client_id' => 'required|exists:clients,id',
-            'plan_id' => 'required|exists:plans,id',
+            'plan_id' => 'nullable|exists:plans,id',
             'router_id' => 'required|exists:routers,id',
             'auth_type' => 'required|in:hotspot,pppoe',
             'username' => 'required|string|max:100',
             'password' => 'required|string|min:4',
             'assigned_ip' => 'nullable|ip',
             'assigned_mac' => 'nullable|string',
+            'expires_at' => 'nullable|date',
         ]);
 
-        $plan = Plan::findOrFail($validated['plan_id']);
+        // No plan chosen: the default plan (30 calendar days) applies to every new subscriber.
+        $plan = !empty($validated['plan_id'])
+            ? Plan::findOrFail($validated['plan_id'])
+            : Plan::defaultPlan();
+
+        if ($plan === null) {
+            return back()->withInput()->with('error', 'Choose a plan — no default plan is set.');
+        }
+
+        $validated['plan_id'] = $plan->id;
 
         $startAt = Carbon::now();
-        $expiresAt = null;
-
-        if ($plan->validity_days) {
-            $expiresAt = $startAt->copy()->addDays($plan->validity_days);
-        }
+        $expiresAt = !empty($validated['expires_at'])
+            ? Carbon::parse($validated['expires_at'])->endOfDay()
+            : ($plan->validity_days ? Subscription::calendarExpiry($startAt, (int) $plan->validity_days) : null);
 
         $subscription = Subscription::create([
             ...$validated,
@@ -135,32 +143,53 @@ class SubscriptionController extends Controller
     public function enable(Subscription $subscription): RedirectResponse
     {
         try {
-            $service = $subscription->router->service();
-
-            if ($subscription->auth_type === 'hotspot') {
-                $service->enableHotspotUser($subscription->username);
-            } elseif ($subscription->auth_type === 'pppoe') {
-                $service->enablePppoeSecret($subscription->username);
-            }
-
-            if ($subscription->assigned_ip) {
-                $service->unfreezeIp($subscription->assigned_ip);
-            }
-
-            $service->disconnect();
-
-            $subscription->update([
-                'status' => 'active',
-                'start_at' => now(),
-                'expires_at' => $subscription->plan->validity_days
-                    ? now()->addDays($subscription->plan->validity_days)
-                    : null,
-            ]);
+            $subscription->activateOnRouter();
 
             return back()->with('success', "Subscriber '{$subscription->username}' re-enabled.");
         } catch (Exception $e) {
             return back()->with('error', "Failed to enable on router: " . $e->getMessage());
         }
+    }
+
+    /**
+     * Quick expiry editor (Live Router Users page).
+     * Setting a past date disables the account immediately; pushing a past
+     * expiry into the future re-activates it.
+     */
+    public function updateExpiry(Request $request, Subscription $subscription): RedirectResponse
+    {
+        $validated = $request->validate([
+            'expires_at' => 'nullable|date',
+        ]);
+
+        $expiresAt = !empty($validated['expires_at']) ? Carbon::parse($validated['expires_at']) : null;
+        $wasExpired = $subscription->status !== 'active';
+
+        if ($expiresAt !== null && $expiresAt->isPast() && $subscription->status === 'active') {
+            try {
+                $subscription->disableOnRouter('time_expired');
+
+                return back()->with('success', "Expiry for '{$subscription->username}' set to the past — account disabled.");
+            } catch (Exception $e) {
+                return back()->with('error', "Expiry saved, but disabling on the router failed: " . $e->getMessage());
+            }
+        }
+
+        if ($wasExpired && ($expiresAt === null || $expiresAt->isFuture())) {
+            try {
+                // Explicit date wins; null means permanent (no plan fallback) —
+                // the admin picked "No expiry" on purpose.
+                $subscription->activateOnRouter($expiresAt, false);
+
+                return back()->with('success', "Expiry for '{$subscription->username}' set — account active until " . ($expiresAt?->toDateTimeString() ?? 'further notice') . ".");
+            } catch (Exception $e) {
+                return back()->with('error', "Expiry saved, but activation on the router failed: " . $e->getMessage());
+            }
+        }
+
+        $subscription->update(['expires_at' => $expiresAt]);
+
+        return back()->with('success', "Expiry for '{$subscription->username}' set to " . ($expiresAt?->toDateTimeString() ?? 'no time limit') . ".");
     }
 
     public function update(Request $request, Subscription $subscription): RedirectResponse

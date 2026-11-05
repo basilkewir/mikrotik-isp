@@ -207,9 +207,10 @@ for each active direct device:
 
 | Class | Responsibility |
 |---|---|
-| `MikrotikService` | Hotspot users, PPPoE secrets, sessions, simple queues, profiles, connected-device sources, address lists, static leases, bridge-filter gate, firewall policy, health/snapshot |
+| `MikrotikService` | Hotspot users, hotspot profile device cap (`shared-users` — v7 keeps it on the user profile), PPPoE secrets, sessions, simple queues, profiles, connected-device sources, address lists, static leases, device comments (DHCP lease, ownership-tag preserving), bridge-filter gate, firewall policy, health/snapshot |
 | `MacAuthManager` | `activate()` / `deactivate()` / `purge()` orchestration for direct devices |
 | `ConnectedDeviceService` | Merges ARP + DHCP leases + hotspot active + PPP active + neighbors; dedupes by MAC (key-based `resolveKey`/`createKey` mutations); status `online`/`idle`/`offline` |
+| `PaymentSettlementService` | Gateway-agnostic settlement of a confirmed `Payment`: subscription payments renew + reactivate on the router, wallet payments credit the ledger and cascade into armed (`auto_renew`) subscriptions |
 | `RouterDataService` | `snapshot()` used by `isp:sync-routers` |
 | `RouterOsProtocol` | Wire protocol (connect/login/read/write/parse) |
 
@@ -382,7 +383,18 @@ MonetbilGateway          ← sign / initiate / verifyWebhookSignature / checkTra
    **authoritative** re-check `POST /payment/v1/checkPayment` with
    `paymentId=transaction_id` (status 1/7 = success). 500 on check failure so
    Monetbil retries.
-3. Credits wallet (`type=topup`, or `type=invoice_payment` if tied to invoice).
+3. **Settlement** is gateway-agnostic — `PaymentSettlementService::settle()`
+   (any gateway that confirms a transaction hands it there, per
+   `PaymentGatewayInterface`): **subscription payments** extend the calendar
+   window and **reactivate immediately** — `provisionOnRouter()` +
+   `activateOnRouter($newExpiry, false)` (re-enable user/secret, lift
+   `EXPIRED_USERS`, `subscription_activate` log); **wallet top-ups / invoice
+   payments** credit the wallet (`type=topup`, or `type=invoice_payment`) and
+   **cascade** into any armed (`auto_renew`) due subscriptions of that client
+   — top-up → service back on, without waiting for the hourly cron.
+   Idempotent: an already-settled payment only re-runs activation while the
+   subscription is still inactive/expired (router was down on first delivery —
+   Monetbil's retry heals it).
 4. Config lives in `settings` (`monetbil.service_key` / `service_secret` /
    `logo_url`), edited at `/settings`; `isConfigured()` gates the Pay button.
 
@@ -390,9 +402,21 @@ MonetbilGateway          ← sign / initiate / verifyWebhookSignature / checkTra
 
 * `InvoiceService::create()` → `INV-YYYYMM-xxxx` + line items;
   `payFromWallet()` (debit + mark paid); `cancel()`.
-* `isp:renew-from-wallet` (hourly): expired `auto_renew` subscriptions where
-  wallet balance ≥ plan price → debit, extend `expires_at` by `validity_days`,
-  `provisionOnRouter()`.
+* `isp:renew-from-wallet` (hourly), the portal "Renew from wallet" button and
+  the top-up cascade all share `SubscriptionRenewalService::renewFromWallet()`:
+  debit the wallet, extend `expires_at` from the day after the current window,
+  then **reactivate the account directly on the router** — `provisionOnRouter()` +
+  `applyEnabledOnRouterState()` (enable user/secret, lift `EXPIRED_USERS`) and
+  a `subscription_renew` activity log. A router outage never undoes a paid
+  renewal (logged; the next provisioning run reconciles).
+* Auto-renew candidates are `status IN (active, expired)` — the 1-minute
+  enforcement pass normally flips an expired subscription to `expired` long
+  before the hourly cron runs, so filtering on `active` alone would miss
+  almost every renewal.
+* Data quota is **cumulative until plan change**: renewals buy time only —
+  `data_used_bytes` and the RouterOS `limit-bytes-total` counters are never
+  reset by a payment (operator decision). A quota-exhausted account therefore
+  stays blocked until the plan/quota is changed, even after renewing.
 * Calendar model unchanged: `isp:enforce-quotas` (1 min) still enforces
   expiry/quotas regardless of payment path.
 

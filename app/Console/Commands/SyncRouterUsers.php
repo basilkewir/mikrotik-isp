@@ -62,7 +62,7 @@ class SyncRouterUsers extends Command
                         continue; // skip nameless profiles
                     }
 
-                    $plan = $this->importPlan($router, $name, $kind, $dry);
+                    $plan = $this->importPlan($router, $name, $kind, $dry, $profile);
                     if ($plan) {
                         $planByProfile[$name] = $plan;
                         $totals['plans']++;
@@ -104,12 +104,20 @@ class SyncRouterUsers extends Command
     /**
      * Create (or find) a Plan for a RouterOS profile name.
      */
-    private function importPlan(Router $router, string $profileName, string $kind, bool $dry): ?Plan
+    private function importPlan(Router $router, string $profileName, string $kind, bool $dry, ?array $profileRow = null): ?Plan
     {
         $code = $this->planCode($profileName);
 
+        // Device cap the router profile already grants; plans must mirror it so
+        // provisioning never lowers what a profile allows (e.g. "2 Users").
+        $sharedUsers = max(1, (int) ($profileRow['shared-users'] ?? 1));
+
         $existing = Plan::where('code', $code)->first();
         if ($existing) {
+            if (!$dry && (int) $existing->shared_users !== $sharedUsers) {
+                $existing->update(['shared_users' => $sharedUsers]);
+            }
+
             return $existing;
         }
 
@@ -131,7 +139,7 @@ class SyncRouterUsers extends Command
             'rate_limit_download' => '10M',
             'hotspot_profile' => $kind === 'hotspot' ? $profileName : 'default',
             'pppoe_profile' => $kind === 'pppoe' ? $profileName : 'default',
-            'shared_users' => 1,
+            'shared_users' => $sharedUsers,
             'is_active' => true,
         ]);
     }

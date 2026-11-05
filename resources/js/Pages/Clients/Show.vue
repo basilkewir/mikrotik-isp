@@ -263,7 +263,7 @@
               <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Bandwidth Plan</label>
               <select v-model="subForm.plan_id" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
                 <option v-for="p in plans" :key="p.id" :value="p.id">
-                  {{ p.name }} · {{ p.validity_days ? `${p.validity_days} calendar days` : 'no time expiry' }} · {{ Number(p.price).toLocaleString('fr-FR') }} XAF
+                  {{ p.name }} · {{ p.validity_days ? `${p.validity_days} calendar days` : 'no time expiry' }} · {{ Number(p.price).toLocaleString('fr-FR') }} XAF{{ p.is_default ? ' (default)' : '' }}
                 </option>
               </select>
             </div>
@@ -278,6 +278,11 @@
               <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Subscriber Password</label>
               <input v-model="subForm.password" type="text" placeholder="Secret / PIN" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono" />
             </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Expiry Date <span class="normal-case font-normal text-slate-500">(optional — defaults to plan validity)</span></label>
+            <ExpiryPresets v-model="subForm.expires_at" hint="Leave empty to use the plan's calendar-day validity." />
           </div>
 
           <div class="flex justify-end gap-3 pt-4 border-t border-slate-700">
@@ -333,7 +338,11 @@
             </div>
             <div>
               <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Access Duration (Calendar Days)</label>
-              <input v-model.number="lanForm.access_duration_days" type="number" min="1" max="3650" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono" />
+              <input v-model.number="lanForm.access_duration_days" type="number" min="1" max="3650" placeholder="e.g. 30" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Or Set Exact Expiry Date</label>
+              <ExpiryPresets v-model="lanForm.access_expires_at" hint="An exact date overrides the duration." />
             </div>
           </div>
           <div class="flex justify-end gap-3 pt-4 border-t border-slate-700">
@@ -538,18 +547,19 @@
             </div>
           </div>
 
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Assigned IP (optional)</label>
-              <input v-model="subEditForm.assigned_ip" type="text" placeholder="192.168.20.10" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono" />
-            </div>
-            <div>
-              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Expires At (calendar date)</label>
-              <input v-model="subEditForm.expires_at" type="datetime-local" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono" />
-            </div>
+          <div>
+            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Assigned IP (optional)</label>
+            <input v-model="subEditForm.assigned_ip" type="text" placeholder="192.168.20.10" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono" />
           </div>
 
-          <p class="text-[11px] text-slate-500">Leave expiry empty for a permanent (no time limit) subscription.</p>
+          <div>
+            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Expires At (calendar date)</label>
+            <ExpiryPresets
+              v-model="subEditForm.expires_at"
+              :current-expiry="editingSub?.expires_at"
+              hint="Leave expiry empty for a permanent (no time limit) subscription."
+            />
+          </div>
 
           <div class="flex justify-end gap-3 pt-4 border-t border-slate-700">
             <button type="button" @click="showSubEditModal = false" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition">
@@ -583,12 +593,21 @@
 
           <div>
             <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Access Duration (Calendar Days)</label>
-            <input v-model.number="deviceEditForm.access_duration_days" type="number" min="1" max="3650" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono" />
+            <input v-model.number="deviceEditForm.access_duration_days" type="number" min="1" max="3650" placeholder="e.g. 30" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono" />
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Or Set Exact Expiry Date</label>
+            <ExpiryPresets
+              v-model="deviceEditForm.access_expires_at"
+              :current-expiry="editingDevice?.access_expires_at"
+              hint="An exact date overrides the duration and the renew checkbox."
+            />
           </div>
 
           <div class="flex items-center gap-2">
             <input v-model="deviceEditForm.renew" type="checkbox" id="device_renew" class="rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-indigo-500" />
-            <label for="device_renew" class="text-xs text-slate-300">Reset access period from today (extend by {{ deviceEditForm.access_duration_days }} days)</label>
+            <label for="device_renew" class="text-xs text-slate-300">Reset access period from today (extend by {{ deviceEditForm.access_duration_days || 30 }} days)</label>
           </div>
 
           <div class="flex justify-end gap-3 pt-4 border-t border-slate-700">
@@ -609,6 +628,7 @@
 import { ref } from 'vue';
 import { Link, router as inertiaRouter } from '@inertiajs/vue3';
 import AppLayout from '../../Layouts/AppLayout.vue';
+import ExpiryPresets from '../../Components/ExpiryPresets.vue';
 
 const props = defineProps({
   client: Object,
@@ -709,6 +729,7 @@ const deviceEditForm = ref({
   hostname: '',
   ip_address: '',
   access_duration_days: 30,
+  access_expires_at: '',
   mac_address: '',
   renew: false,
 });
@@ -775,6 +796,7 @@ const openDeviceEdit = (device) => {
     hostname: device.hostname || '',
     ip_address: device.ip_address || '',
     access_duration_days: device.access_duration_days || 30,
+    access_expires_at: toLocalInput(device.access_expires_at),
     mac_address: device.mac_address,
     renew: false,
   };
@@ -799,10 +821,11 @@ const deleteDevice = (device) => {
 const subForm = ref({
   client_id: props.client.id,
   router_id: props.routers[0]?.id || '',
-  plan_id: props.plans[0]?.id || '',
+  plan_id: (props.plans.find((p) => p.is_default) || props.plans[0])?.id || '',
   auth_type: 'hotspot',
   username: '',
   password: '',
+  expires_at: '',
 });
 
 const lanForm = ref({
@@ -816,20 +839,28 @@ const lanForm = ref({
   manufacturer: '',
   notes: '',
   access_duration_days: 30,
+  access_expires_at: '',
 });
 
 const submitSubscription = () => {
-  inertiaRouter.post('/subscriptions', subForm.value, {
+  inertiaRouter.post('/subscriptions', {
+    ...subForm.value,
+    expires_at: subForm.value.expires_at || null,
+  }, {
     onSuccess: () => {
       showAssignModal.value = false;
       subForm.value.username = '';
       subForm.value.password = '';
+      subForm.value.expires_at = '';
     },
   });
 };
 
 const submitLanDevice = () => {
-  inertiaRouter.post(`/clients/${props.client.id}/devices`, lanForm.value, {
+  inertiaRouter.post(`/clients/${props.client.id}/devices`, {
+    ...lanForm.value,
+    access_expires_at: lanForm.value.access_expires_at || null,
+  }, {
     onSuccess: () => {
       showLanDeviceModal.value = false;
       lanForm.value = {
@@ -843,6 +874,7 @@ const submitLanDevice = () => {
         manufacturer: '',
         notes: '',
         access_duration_days: 30,
+        access_expires_at: '',
       };
     },
   });

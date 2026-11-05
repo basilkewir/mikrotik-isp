@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="pragma" content="no-cache" />
+    <meta http-equiv="expires" content="-1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Fastlink Hotspot - Log in</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+    <!-- two other colors
+
+<body class="lite">
+<body class="dark">
+
+-->
+
+    $(if chap-id)
+    <form name="sendin" action="$(link-login-only)" method="post" style="display:none">
+        <input type="hidden" name="username" />
+        <input type="hidden" name="password" />
+        <input type="hidden" name="dst" value="$(link-orig)" />
+        <input type="hidden" name="popup" value="true" />
+    </form>
+
+    <script src="/md5.js"></script>
+    <script>
+        function doLogin() {
+            document.sendin.username.value = document.login.username.value;
+            document.sendin.password.value = hexMD5('$(chap-id)' + document.login.password.value + '$(chap-challenge)');
+            document.sendin.submit();
+            return false;
+        }
+
+    </script>
+    $(endif)
+    <div class="ie-fixMinHeight">
+        <div class="main">
+            <div class="wrap animated fadeIn">
+                <form name="login" action="$(link-login-only)" method="post" $(if chap-id) onSubmit="return doLogin()" $(endif)>
+                    <input type="hidden" name="dst" value="$(link-orig)" />
+                    <input type="hidden" name="popup" value="true" />
+                    <img class="logo" src="img/fastlink-logo.svg" alt="Fastlink" style="display:block;width:200px;height:60px;margin:0 auto 12px;" />
+
+
+                    <p class="info $(if error)alert$(endif)">
+                        $(if error == "")Please log in to use the internet hotspot service $(if trial == 'yes')<br />Free trial available, <a href="$(link-login-only)?dst=$(link-orig-esc)&amp;username=T-$(mac-esc)">click here</a>.$(endif)
+                        $(endif)
+
+                        $(if error)$(error)$(endif)
+                    </p>
+                    <label>
+                        <input name="username" type="text" value="$(username)" placeholder="Username" autocomplete="username" />
+                        <img class="ico" src="img/user.svg" alt="Username" />
+                    </label>
+
+                    <label>
+                        <input name="password" type="password" placeholder="Password" autocomplete="current-password" />
+                        <img class="ico" src="img/password.svg" alt="Password" />
+                    </label>
+
+                    <input type="submit" value="Connect" />
+
+                    <!-- Contact Numbers -->
+                    <div class="contact-info">
+                        <p class="contact-label">Need help? Contact us:</p>
+                        <div class="phone-numbers">
+                            <a href="tel:+237673191939" class="phone-link">673 191 939</a>
+                            <span class="separator">•</span>
+                            <a href="tel:+237699191901" class="phone-link">699 191 901</a>
+                        </div>
+                    </div>
+
+                    <!-- OrbitLink bilingual days-remaining notice -->
+                    <div id="orbit-remaining" style="display:none;margin-top:12px;padding:10px 12px;border-radius:10px;background:#eef4ff;color:#0b3d91;font-size:13px;line-height:1.4;"></div>
+                    <script>
+                    (function () {
+                        var base = 'http://192.168.20.32:8000';
+                        var username = '$(username)';
+                        var mac = '$(mac)';
+                        if (!username && !mac) return;
+                        fetch(base + '/captive.php?action=remaining&username=' + encodeURIComponent(username) + '&mac=' + encodeURIComponent(mac))
+                            .then(function (r) { return r.json(); })
+                            .then(function (d) {
+                                if (!d || typeof d.days === 'undefined' || d.days === null) return;
+                                var el = document.getElementById('orbit-remaining');
+                                var until = d.until ? ' (until ' + d.until + ')' : '';
+                                var untilFr = d.until ? " (jusqu'au " + d.until + ')' : '';
+                                el.innerHTML = '<strong>' + d.en + '</strong>' + until + '<br><strong>' + d.fr + '</strong>' + untilFr;
+                                el.style.display = 'block';
+                            })
+                            .catch(function () {});
+                    })();
+                    </script>
+
+                </form>
+                <p class="info bt">Powered by Fastlink Network Solutions</p>
+
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

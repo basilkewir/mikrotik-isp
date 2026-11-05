@@ -47,6 +47,10 @@ class MacAuthManager
                 $device->ip_address,
                 $this->comment($device)
             );
+            $actions['traffic_queue'] = $this->service->ensureTrafficQueue(
+                'ISP-CPE-' . $device->id,
+                $device->ip_address
+            );
         } else {
             $actions['address_list'] = 'skipped (no IP address on device)';
             $actions['dhcp_lease'] = 'skipped (no IP address on device)';

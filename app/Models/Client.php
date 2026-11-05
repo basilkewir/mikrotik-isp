@@ -67,6 +67,11 @@ class Client extends Authenticatable
         return $this->hasMany(Ticket::class);
     }
 
+    public function reminders(): HasMany
+    {
+        return $this->hasMany(SubscriptionReminder::class);
+    }
+
     /**
      * Auto-generate sequential client code.
      */

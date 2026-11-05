@@ -24,8 +24,8 @@ class MonetbilGateway implements PaymentGatewayInterface
 
     public function isConfigured(): bool
     {
-        return (bool) Setting::getValue('monetbil.service_key')
-            && (bool) Setting::getValue('monetbil.service_secret');
+        return (bool) $this->serviceKey()
+            && (bool) $this->serviceSecret();
     }
 
     public function initiate(
@@ -35,21 +35,25 @@ class MonetbilGateway implements PaymentGatewayInterface
         ?string $operator,
         string $description,
         ?int $invoiceId = null,
+        ?int $subscriptionId = null,
     ): array {
         if (!$this->isConfigured()) {
             throw new \RuntimeException('Monetbil is not configured — set the service key and secret in Settings.');
         }
 
-        $serviceKey = (string) Setting::getValue('monetbil.service_key');
-        $serviceSecret = (string) Setting::getValue('monetbil.service_secret');
+        $serviceKey = $this->serviceKey();
+        $serviceSecret = $this->serviceSecret();
         $baseUrl = rtrim((string) config('app.url'), '/');
 
         $payment = Payment::create([
             'client_id' => $client->id,
             'invoice_id' => $invoiceId,
+            'subscription_id' => $subscriptionId,
             'gateway' => 'monetbil',
             'payment_ref' => 'MBL-' . now()->format('Ymd') . '-' . strtoupper(Str::random(10)),
-            'item_ref' => $invoiceId ? "INV-{$invoiceId}" : 'WALLET-TOPUP',
+            'item_ref' => $subscriptionId
+                ? "SUB-{$subscriptionId}"
+                : ($invoiceId ? "INV-{$invoiceId}" : 'WALLET-TOPUP'),
             'amount' => number_format($amount, 2, '.', ''),
             'currency' => 'XAF',
             'phone' => $phone,
@@ -115,16 +119,28 @@ class MonetbilGateway implements PaymentGatewayInterface
         return md5($serviceSecret . implode('', $params));
     }
 
+    /** DB settings win; .env (config/monetbil.php) is the fallback. */
+    public function serviceKey(): string
+    {
+        return (string) (Setting::getValue('monetbil.service_key') ?: config('monetbil.service_key'));
+    }
+
+    public function serviceSecret(): string
+    {
+        return (string) (Setting::getValue('monetbil.service_secret') ?: config('monetbil.service_secret'));
+    }
+
     public function verifyWebhookSignature(array $payload): bool
     {
-        if (empty($payload['sign']) || !Setting::getValue('monetbil.service_secret')) {
+        $serviceSecret = $this->serviceSecret();
+        if (empty($payload['sign']) || $serviceSecret === '') {
             return false;
         }
 
         $sign = $payload['sign'];
         unset($payload['sign']);
 
-        return hash_equals($this->sign((string) Setting::getValue('monetbil.service_secret'), $payload), (string) $sign);
+        return hash_equals($this->sign($serviceSecret, $payload), (string) $sign);
     }
 
     public function checkTransactionStatus(string $transactionId): int

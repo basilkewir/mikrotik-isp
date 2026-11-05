@@ -15,6 +15,7 @@ class Payment extends Model
     protected $fillable = [
         'client_id',
         'invoice_id',
+        'subscription_id',
         'gateway',
         'payment_ref',
         'item_ref',
@@ -42,6 +43,11 @@ class Payment extends Model
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
+    }
+
+    public function subscription(): BelongsTo
+    {
+        return $this->belongsTo(Subscription::class);
     }
 
     public function isPending(): bool

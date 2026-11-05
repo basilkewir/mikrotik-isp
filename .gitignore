@@ -26,9 +26,13 @@
 !/storage/framework/testing/.gitignore
 !/storage/framework/views/.gitignore
 
+# Local database
+/database/*.sqlite
+
 # OS / editor
 .DS_Store
 Thumbs.db
 .idea
 .vscode
 *.swp
+.phpunit.cache

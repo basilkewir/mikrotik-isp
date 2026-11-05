@@ -16,15 +16,19 @@ return new class extends Migration
         DB::table('devices')->where('type', 'ap')->update(['type' => 'access_point']);
 
         // 2. customer edge types stay tied to a client; infrastructure devices have none.
-        DB::statement('ALTER TABLE devices MODIFY client_id BIGINT UNSIGNED NULL');
+        //    (MySQL-only: sqlite is dynamically typed and rejects ALTER ... MODIFY;
+        //     tests on sqlite don't need the nullability change.)
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement('ALTER TABLE devices MODIFY client_id BIGINT UNSIGNED NULL');
 
-        // 3. Expand the type enum to the full 12-code typology.
-        DB::statement(
-            "ALTER TABLE devices MODIFY type ENUM(
-                'cpe','hotspot_client','bridge_client','access_point','router','switch',
-                'onu','sector','backhaul','iot','server','unknown'
-            ) NOT NULL DEFAULT 'cpe'"
-        );
+            // 3. Expand the type enum to the full 12-code typology.
+            DB::statement(
+                "ALTER TABLE devices MODIFY type ENUM(
+                    'cpe','hotspot_client','bridge_client','access_point','router','switch',
+                    'onu','sector','backhaul','iot','server','unknown'
+                ) NOT NULL DEFAULT 'cpe'"
+            );
+        }
 
         // 4. New identification / hierarchy / status columns.
         Schema::table('devices', function (Blueprint $table) {
@@ -59,11 +63,13 @@ return new class extends Migration
             ]);
         });
 
-        DB::statement(
-            "ALTER TABLE devices MODIFY type ENUM(
-                'hotspot','pppoe','cpe','bridge','ap'
-            ) NOT NULL DEFAULT 'cpe'"
-        );
-        DB::statement('ALTER TABLE devices MODIFY client_id BIGINT UNSIGNED NOT NULL');
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement(
+                "ALTER TABLE devices MODIFY type ENUM(
+                    'hotspot','pppoe','cpe','bridge','ap'
+                ) NOT NULL DEFAULT 'cpe'"
+            );
+            DB::statement('ALTER TABLE devices MODIFY client_id BIGINT UNSIGNED NOT NULL');
+        }
     }
 };

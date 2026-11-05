@@ -6,7 +6,9 @@ use App\Enums\DeviceType;
 use App\Models\Client;
 use App\Models\Device;
 use App\Models\Router;
+use App\Support\CalendarWindow;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -81,19 +83,27 @@ class DeviceController extends Controller
             'snmp_community' => 'nullable|string|max:50',
             'signal_strength' => 'nullable|integer',
             'notes' => 'nullable|string',
+            'access_duration_days' => 'nullable|integer|min:1|max:3650',
+            'access_expires_at' => 'nullable|date',
         ]);
 
         $type = DeviceType::from($validated['type']);
+        [$duration, $expiresAt] = Device::resolveAccessExpiry(
+            isset($validated['access_duration_days']) ? (int) $validated['access_duration_days'] : null,
+            $validated['access_expires_at'] ?? null,
+            $type->isCustomerEdge(),
+        );
 
         $device = Device::create([
             ...$validated,
             'mac_address' => strtoupper($validated['mac_address']),
             'is_active' => true,
-            'access_duration_days' => $type->isCustomerEdge() ? 30 : null,
-            'access_expires_at' => $type->isCustomerEdge() ? now()->addDays(30) : null,
+            'access_duration_days' => $duration,
+            'access_expires_at' => $expiresAt,
         ]);
 
-        return back()->with('success', "Device {$device->mac_address} (" . $type->label() . ") added to inventory.");
+        return back()->with('success', "Device {$device->mac_address} (" . $type->label() . ") added to inventory"
+            . ($expiresAt ? " — access expires {$expiresAt->toDateTimeString()}." : '.'));
     }
 
     public function update(Request $request, Device $device)
@@ -116,16 +126,43 @@ class DeviceController extends Controller
             'snmp_community' => 'nullable|string|max:50',
             'signal_strength' => 'nullable|integer',
             'notes' => 'nullable|string',
+            'access_duration_days' => 'nullable|integer|min:1|max:3650',
+            'access_expires_at' => 'nullable|date',
+            'renew' => 'boolean',
         ]);
 
         if ((int) ($validated['parent_device_id'] ?? 0) === $device->id) {
             return back()->with('error', 'A device cannot be its own parent.');
         }
 
-        $device->update([
+        $data = [
             ...$validated,
             'mac_address' => strtoupper($validated['mac_address']),
-        ]);
+        ];
+
+        $type = DeviceType::from($validated['type']);
+        $hasAbsolute = !empty($validated['access_expires_at']);
+        $hasDuration = !empty($validated['access_duration_days']);
+
+        if ($hasAbsolute) {
+            $data['access_expires_at'] = Carbon::parse($validated['access_expires_at']);
+            if ($hasDuration) {
+                $data['access_duration_days'] = (int) $validated['access_duration_days'];
+            }
+        } elseif ($hasDuration) {
+            $data['access_duration_days'] = (int) $validated['access_duration_days'];
+            if (!empty($validated['renew'])) {
+                $data['access_expires_at'] = CalendarWindow::endOf((int) $validated['access_duration_days']);
+            }
+        } elseif (!$type->isCustomerEdge()) {
+            // Switching to an infrastructure type: access expiry no longer applies.
+            $data['access_duration_days'] = null;
+            $data['access_expires_at'] = null;
+        }
+
+        unset($data['renew']);
+
+        $device->update($data);
 
         return back()->with('success', "Device {$device->mac_address} updated.");
     }

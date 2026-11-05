@@ -5,6 +5,16 @@ namespace App\Services\Payments;
 use App\Models\Client;
 use App\Models\Payment;
 
+/**
+ * Contract for hosted payment gateways.
+ *
+ * Each gateway verifies its own webhook and re-checks the transaction
+ * status on its own terms — then, on confirmed success, MUST hand the
+ * Payment row to PaymentSettlementService::settle(). Settlement is
+ * gateway-agnostic: subscription payments renew and reactivate the account
+ * on the router immediately; wallet payments credit the ledger and cascade
+ * into armed (auto_renew) subscriptions.
+ */
 interface PaymentGatewayInterface
 {
     /**
@@ -19,6 +29,7 @@ interface PaymentGatewayInterface
         ?string $operator,
         string $description,
         ?int $invoiceId = null,
+        ?int $subscriptionId = null,
     ): array;
 
     /**
